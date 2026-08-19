@@ -1,0 +1,48 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="SmartSchoolMobile.MainPage"
+             Title="منصة التحفيظ القرآنية الذكية"
+             BackgroundColor="#F4F6F9">
+    <ScrollView>
+        <VerticalStackLayout Spacing="20" Padding="25">
+            <!-- الهيدر أو العنوان الرئيسي -->
+            <Border BackgroundColor="#065F46" StrokeShape="RoundRectangle 12" Padding="20" HorizontalOptions="Fill">
+                <VerticalStackLayout Spacing="5">
+                    <Label Text="منصة مدرسة القرآن الكريم" FontSize="22" FontAttributes="Bold" TextColor="White" HorizontalOptions="Center" />
+                    <Label Text="لوحة التحكم ومتابعة الحفظ" FontSize="14" TextColor="#A7F3D0" HorizontalOptions="Center" />
+                </VerticalStackLayout>
+            </Border>
+            <!-- نموذج تسجيل الدخول -->
+            <Border BackgroundColor="White" StrokeShape="RoundRectangle 12" Padding="20" Stroke="#E5E7EB">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="تسجيل الدخول" FontSize="16" FontAttributes="Bold" TextColor="#374151" />
+                    <Entry x:Name="UsernameEntry" Placeholder="اسم المستخدم" Text="admin" BackgroundColor="#F9FAFB" />
+                    <Entry x:Name="PasswordEntry" Placeholder="كلمة المرور" IsPassword="True" Text="admin123" BackgroundColor="#F9FAFB" />
+                    <Button Text="تسجيل الدخول وجلب البيانات" Clicked="OnLoginClicked" BackgroundColor="#047857" TextColor="White" CornerRadius="8" FontAttributes="Bold" />
+                </VerticalStackLayout>
+            </Border>
+            <!-- أزرار الإجراءات السريعة -->
+            <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
+                <Button x:Name="AddStudentButton" Text="+ إضافة طالب" Clicked="OnAddStudentClicked" BackgroundColor="#16A34A" TextColor="White" CornerRadius="8" IsVisible="False" FontAttributes="Bold" />
+                <Button x:Name="ViewTeachersButton" Text="👨‍🏫 المعلمون" Clicked="OnViewTeachersClicked" BackgroundColor="#D97706" TextColor="White" CornerRadius="8" IsVisible="False" FontAttributes="Bold" />
+                <Button x:Name="ViewQuranProgressButton" Text="📖 متابعة الحفظ" Clicked="OnViewQuranProgressClicked" BackgroundColor="#2563EB" TextColor="White" CornerRadius="8" IsVisible="True" FontAttributes="Bold" />
+            </HorizontalStackLayout>
+            <Label x:Name="StatusLabel" FontSize="14" HorizontalOptions="Center" FontAttributes="Bold" />
+            <!-- قائمة الطلاب -->
+            <Label Text="قائمة الطلاب المسجلين:" FontSize="18" FontAttributes="Bold" TextColor="#1F2937" />
+            <CollectionView x:Name="StudentsCollectionView" HeightRequest="260" SelectionMode="Single" SelectionChanged="OnStudentSelected">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Border BackgroundColor="White" StrokeShape="RoundRectangle 8" Padding="15" Margin="0,4" Stroke="#E5E7EB">
+                            <HorizontalStackLayout Spacing="10">
+                                <Label Text="{Binding FirstName}" FontAttributes="Bold" FontSize="16" TextColor="#111827" />
+                                <Label Text="{Binding LastName}" FontSize="16" TextColor="#4B5563" />
+                            </HorizontalStackLayout>
+                        </Border>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

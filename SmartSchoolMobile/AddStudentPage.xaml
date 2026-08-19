@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="SmartSchoolMobile.AddStudentPage"
+             Title="إضافة طالب جديد">
+    <VerticalStackLayout Spacing="15" Padding="30">
+        <Label Text="إضافة طالب جديد للنظام" FontSize="20" FontAttributes="Bold" HorizontalOptions="Center" />
+        <Entry x:Name="FirstNameEntry" Placeholder="الاسم الأول" />
+        <Entry x:Name="LastNameEntry" Placeholder="اسم العائلة" />
+        <Button Text="حفظ الطالب" Clicked="OnSaveStudentClicked" BackgroundColor="DarkGreen" TextColor="White" />
+        <Label x:Name="MsgLabel" FontSize="16" HorizontalOptions="Center" />
+    </VerticalStackLayout>
+</ContentPage>

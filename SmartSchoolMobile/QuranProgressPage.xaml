@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="SmartSchoolMobile.QuranProgressPage"
+             Title="متابعة الحفظ القرآنية"
+             BackgroundColor="#F4F6F9">
+    <VerticalStackLayout Spacing="20" Padding="25">
+        <Border BackgroundColor="#047857" StrokeShape="RoundRectangle 12" Padding="15">
+            <Label Text="سجل الحفظ والمراجعة اليومي" FontSize="20" FontAttributes="Bold" TextColor="White" HorizontalOptions="Center" />
+        </Border>
+        <CollectionView x:Name="ProgressCollectionView" HeightRequest="380">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Border BackgroundColor="White" StrokeShape="RoundRectangle 8" Padding="15" Margin="0,6" Stroke="#E5E7EB">
+                        <VerticalStackLayout Spacing="8">
+                            <HorizontalStackLayout Spacing="10">
+                                <Label Text="{Binding SurahName}" FontAttributes="Bold" FontSize="16" TextColor="#065F46" />
+                                <Label Text="|" TextColor="#9CA3AF" FontSize="16" />
+                                <Label Text="التقييم:" FontSize="14" TextColor="#4B5563" />
+                                <Label Text="{Binding Rating}" FontAttributes="Bold" FontSize="14" TextColor="#D97706" />
+                            </HorizontalStackLayout>
+                            <Label Text="{Binding TeacherNotes}" FontSize="14" TextColor="#374151" />
+                        </VerticalStackLayout>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+        <Button Text="رجوع للقائمة الرئيسية" Clicked="OnBackClicked" BackgroundColor="#4B5563" TextColor="White" CornerRadius="8" FontAttributes="Bold" />
+    </VerticalStackLayout>
+</ContentPage>

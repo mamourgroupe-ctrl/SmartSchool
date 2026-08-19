@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="SmartSchoolMobile.TeachersPage"
+             Title="إدارة المعلمين"
+             BackgroundColor="#F4F6F9">
+    <VerticalStackLayout Spacing="20" Padding="25">
+        <Border BackgroundColor="#D97706" StrokeShape="RoundRectangle 12" Padding="15">
+            <Label Text="قائمة المعلمين والمواد الدراسية" FontSize="20" FontAttributes="Bold" TextColor="White" HorizontalOptions="Center" />
+        </Border>
+        <CollectionView x:Name="TeachersCollectionView" HeightRequest="380">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Border BackgroundColor="White" StrokeShape="RoundRectangle 8" Padding="12" Margin="0,5" Stroke="#E5E7EB">
+                        <HorizontalStackLayout Spacing="10">
+                            <Label Text="{Binding FirstName}" FontAttributes="Bold" FontSize="16" TextColor="#111827" />
+                            <Label Text="{Binding LastName}" FontSize="16" TextColor="#111827" />
+                            <Label Text="|" TextColor="#9CA3AF" FontSize="16" />
+                            <Label Text="{Binding Subject}" TextColor="#2563EB" FontSize="16" FontAttributes="Bold" />
+                        </HorizontalStackLayout>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+        <Button Text="رجوع للخلف" Clicked="OnBackClicked" BackgroundColor="#4B5563" TextColor="White" CornerRadius="8" FontAttributes="Bold" />
+    </VerticalStackLayout>
+</ContentPage>

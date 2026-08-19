@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="SmartSchoolMobile.StudentDetailPage"
+             Title="تفاصيل الطالب">
+    <VerticalStackLayout Spacing="20" Padding="30">
+        <Label Text="بيانات الطالب التفصيلية" FontSize="22" FontAttributes="Bold" HorizontalOptions="Center" />
+        <Border Stroke="Navy" StrokeThickness="2" StrokeShape="RoundRectangle 10" Padding="20">
+            <VerticalStackLayout Spacing="10">
+                <Label x:Name="IdLabel" FontSize="16" />
+                <Label x:Name="NameLabel" FontSize="18" FontAttributes="Bold" />
+            </VerticalStackLayout>
+        </Border>
+        <Button Text="رجوع" Clicked="OnBackClicked" BackgroundColor="Navy" TextColor="White" />
+    </VerticalStackLayout>
+</ContentPage>

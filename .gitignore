@@ -50,3 +50,22 @@ app-example
 *.pem
 secrets/
 
+# SmartSchool local/dev files
+.idea/
+*.db
+*.db-shm
+*.db-wal
+*.db.bak
+*.log
+buildinfo
+stdin-test.txt
+# .NET generated files
+**/bin/
+**/obj/
+# SmartSchool secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
