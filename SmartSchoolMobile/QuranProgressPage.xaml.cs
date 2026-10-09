@@ -1,34 +1,36 @@
-﻿using System.Net.Http.Json;
+using SmartSchoolMobile.Services;
+
 namespace SmartSchoolMobile;
 public partial class QuranProgressPage : ContentPage {
-    private readonly HttpClient _httpClient = new() { BaseAddress = new Uri("http://localhost:5200") };
-    public QuranProgressPage() {
+    private readonly ApiService _apiService;
+    private readonly string _token;
+    public QuranProgressPage(ApiService apiService, string token) {
         InitializeComponent();
-        LoadProgressData();
+        _apiService = apiService;
+        _token = token;
+        LoadStudents();
     }
-    private async void LoadProgressData() {
-        try {
-            var list = await _httpClient.GetFromJsonAsync<List<QuranProgressModel>>("api/QuranProgress");
-            if (list != null) {
-                ProgressCollectionView.ItemsSource = list;
-            }
-        } catch (Exception ex) {
-            await DisplayAlert("خطأ", "تعذر جلب سجلات الحفظ: " + ex.Message, "موافق");
-        }
+    private async void LoadStudents() {
+        var students = await _apiService.GetStudentsAsync(_token);
+        var options = (students ?? new List<StudentDto>())
+            .Select(s => new StudentOption { StudentId = s.StudentId, FullName = $"{s.FirstName} {s.LastName}" })
+            .ToList();
+        StudentsCollectionView.ItemsSource = options;
+        StatusLabel.Text = options.Count == 0 ? "لا يوجد طلاب متاحون." : "اختر طالباً لعرض سجل حفظه.";
+    }
+    private async void OnStudentSelected(object sender, SelectionChangedEventArgs e) {
+        if (e.CurrentSelection.FirstOrDefault() is not StudentOption selected) return;
+        var records = await _apiService.GetQuranRecordsAsync(selected.StudentId, _token);
+        ProgressCollectionView.ItemsSource = records;
+        StatusLabel.Text = records == null
+            ? "تعذر تحميل سجلات الحفظ."
+            : (records.Count == 0 ? "لا توجد سجلات حفظ لهذا الطالب بعد." : $"عدد السجلات: {records.Count}");
     }
     private async void OnBackClicked(object sender, EventArgs e) {
         await Navigation.PopAsync();
     }
 }
-public class QuranProgressModel {
-    public int Id { get; set; }
+public class StudentOption {
     public int StudentId { get; set; }
-    public string SurahName { get; set; } = string.Empty;
-    public int FromAyah { get; set; }
-    public int ToAyah { get; set; }
-    public int MemorizationType { get; set; }
-    public int Rating { get; set; }
-    public int TajweedErrorsCount { get; set; }
-    public string TeacherNotes { get; set; } = string.Empty;
-    public DateTime Date { get; set; }
+    public string FullName { get; set; } = string.Empty;
 }

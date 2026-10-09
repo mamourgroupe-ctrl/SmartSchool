@@ -22,7 +22,12 @@ export const Config = {
   API_BASE_URL: BASE_URL,
   ENDPOINTS: {
     LOGIN: `${BASE_URL}/api/auth/login`,
+    REFRESH: `${BASE_URL}/api/auth/refresh`,
+    LOGOUT: `${BASE_URL}/api/auth/logout`,
     STUDENTS: `${BASE_URL}/api/students`,
   },
   TIMEOUT: 10000, // 10 seconds
 };
+
+export const TOKEN_KEY = 'access_token';
+export const REFRESH_TOKEN_KEY = 'refresh_token';

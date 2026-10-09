@@ -50,8 +50,15 @@ public sealed class Student360Service
             .Take(30)
             .Select(x => new BehaviorItem(x.Date, x.Type, x.Category, x.Description, x.Points, x.Visibility))
             .ToListAsync();
+        var quran = await _db.QuranRecords
+            .Where(x => x.StudentId == studentId)
+            .OrderByDescending(x => x.Date)
+            .ThenByDescending(x => x.QuranRecordId)
+            .Take(30)
+            .Select(x => new QuranItem(x.Date, x.SurahName, x.FromAyah, x.ToAyah, x.MemorizationType, x.Rating, x.TajweedErrorsCount))
+            .ToListAsync();
 
-        return new Student360Overview(student.StudentId, student.FirstName, student.LastName, enrollments, guardians, attendance, behavior);
+        return new Student360Overview(student.StudentId, student.FirstName, student.LastName, enrollments, guardians, attendance, behavior, quran);
     }
 
     public async Task<bool> CanManageAsync(int studentId, ClaimsPrincipal user)
@@ -121,4 +128,5 @@ public sealed record EnrollmentItem(int EnrollmentId, string Status, string Sect
 public sealed record GuardianItem(int ParentId, string FirstName, string LastName, string Relationship);
 public sealed record AttendanceItem(DateOnly Date, string Status, string? Notes);
 public sealed record BehaviorItem(DateOnly Date, string Type, string Category, string Description, int Points, string Visibility);
-public sealed record Student360Overview(int StudentId, string FirstName, string LastName, IReadOnlyList<EnrollmentItem> Enrollments, IReadOnlyList<GuardianItem> Guardians, IReadOnlyList<AttendanceItem> Attendance, IReadOnlyList<BehaviorItem> Behavior);
+public sealed record QuranItem(DateOnly Date, string SurahName, int FromAyah, int ToAyah, string MemorizationType, int Rating, int TajweedErrorsCount);
+public sealed record Student360Overview(int StudentId, string FirstName, string LastName, IReadOnlyList<EnrollmentItem> Enrollments, IReadOnlyList<GuardianItem> Guardians, IReadOnlyList<AttendanceItem> Attendance, IReadOnlyList<BehaviorItem> Behavior, IReadOnlyList<QuranItem> Quran);

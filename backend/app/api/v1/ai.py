@@ -1,7 +1,10 @@
-﻿from fastapi import APIRouter, HTTPException
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.ai.service import chat
+from app.core.security import get_current_user
 
 
 router = APIRouter(
@@ -23,7 +26,10 @@ class ChatResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(
+    request: ChatRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
     try:
         response = chat(request.message)
 

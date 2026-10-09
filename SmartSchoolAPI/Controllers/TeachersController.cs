@@ -5,6 +5,7 @@ using SmartSchoolAPI.Data;
 using SmartSchoolAPI.Authorization;
 using SmartSchoolAPI.Models;
 using SmartSchoolAPI.Security;
+using SmartSchoolAPI.Services;
 namespace SmartSchoolAPI.Controllers;
 [Authorize]
 [Route("api/[controller]")]
@@ -15,9 +16,33 @@ public class TeachersController : ControllerBase {
         _context = context;
     }
     [HttpGet]
-    public async Task<IActionResult> GetTeachers() {
+    public async Task<IActionResult> GetTeachers([FromQuery] int? page, [FromQuery] int? pageSize) {
         var query = _context.Teachers.AsQueryable();
-        if (User.IsInRole(RoleNames.Teacher) && int.TryParse(User.FindFirst("UserId")?.Value, out var userId)) query = query.Where(t => t.UserId == userId);
+        if (User.IsInRole(RoleNames.SuperAdmin)) {
+            // Super administrators can list every teacher.
+        } else if (User.IsInRole(RoleNames.SchoolAdmin) && Stage1AccessService.TryUserId(User, out var adminUserId)) {
+            // School admins only see teachers who belong to their organization.
+            query = query.Where(t => _context.OrganizationMemberships.Any(m =>
+                m.UserId == t.UserId && m.IsActive &&
+                _context.OrganizationMemberships.Any(a => a.OrganizationId == m.OrganizationId && a.UserId == adminUserId && a.IsActive)));
+        } else if (User.IsInRole(RoleNames.Teacher) && Stage1AccessService.TryUserId(User, out var teacherUserId)) {
+            query = query.Where(t => t.UserId == teacherUserId);
+        } else if (User.IsInRole(RoleNames.Parent) && Stage1AccessService.TryUserId(User, out var parentUserId)) {
+            // Parents only see teachers of their linked, authorized children.
+            query = query.Where(t => _context.Enrollments.Any(e =>
+                e.Status == EnrollmentStatuses.Active && e.Section.TeacherId == t.TeacherId &&
+                _context.StudentParents.Any(sp => sp.StudentId == e.StudentId && sp.IsAuthorized && sp.Parent.UserId == parentUserId)));
+        } else if (User.IsInRole(RoleNames.Student) && Stage1AccessService.TryUserId(User, out var studentUserId)) {
+            // Students only see teachers of their active sections.
+            query = query.Where(t => _context.Enrollments.Any(e =>
+                e.Status == EnrollmentStatuses.Active && e.Section.TeacherId == t.TeacherId && e.Student.UserId == studentUserId));
+        } else {
+            // Fail closed for any other role.
+            query = query.Where(t => false);
+        }
+        if (page is > 0 && pageSize is > 0 && pageSize <= 200) {
+            query = query.Skip((page.Value - 1) * pageSize.Value).Take(pageSize.Value);
+        }
         var teachers = await query.Select(t => new { t.TeacherId, t.FirstName, t.LastName, t.SubjectSpecialty }).ToListAsync();
         return Ok(teachers);
     }

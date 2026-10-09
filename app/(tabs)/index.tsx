@@ -1,98 +1,172 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+import { useRouter } from 'expo-router';
+import { Colors } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Config, TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/constants/Config';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+type Student = {
+  studentId: number;
+  firstName: string;
+  lastName: string;
+};
+
+// Try to exchange the stored refresh token for a new token pair (rotation).
+async function tryRefresh(): Promise<string | null> {
+  try {
+    const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+    if (!refreshToken) return null;
+    const response = await fetch(Config.ENDPOINTS.REFRESH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data.accessToken) return null;
+    await SecureStore.setItemAsync(TOKEN_KEY, data.accessToken);
+    if (data.refreshToken) {
+      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
+    }
+    return data.accessToken as string;
+  } catch {
+    return null;
+  }
+}
+
+async function clearSession(): Promise<void> {
+  await SecureStore.deleteItemAsync(TOKEN_KEY);
+  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+}
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const colorScheme = useColorScheme() ?? 'light';
+  const colors = Colors[colorScheme];
+  const router = useRouter();
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  const loadStudents = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const token = await SecureStore.getItemAsync(TOKEN_KEY);
+      let response = await fetch(Config.ENDPOINTS.STUDENTS, {
+        headers: { Authorization: `Bearer ${token ?? ''}` },
+      });
+
+      // Access token expired or revoked: try one silent refresh, then retry.
+      if (response.status === 401) {
+        const newToken = await tryRefresh();
+        if (newToken) {
+          response = await fetch(Config.ENDPOINTS.STUDENTS, {
+            headers: { Authorization: `Bearer ${newToken}` },
+          });
+        } else {
+          await clearSession();
+          router.replace('/login');
+          return;
+        }
+      }
+
+      if (response.ok) {
+        setStudents(await response.json());
+      } else {
+        setError('تعذر تحميل قائمة الطلاب');
+      }
+    } catch {
+      setError(`تعذر الاتصال بالخادم (${Config.API_BASE_URL})`);
+    } finally {
+      setLoading(false);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    loadStudents();
+  }, [loadStudents]);
+
+  const logout = async () => {
+    // Best effort: revoke refresh tokens server-side before clearing locally.
+    try {
+      const token = await SecureStore.getItemAsync(TOKEN_KEY);
+      if (token) {
+        await fetch(Config.ENDPOINTS.LOGOUT, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+    } catch {
+      // Ignore network errors on logout; local session is cleared anyway.
+    }
+    await clearSession();
+    router.replace('/login');
+  };
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <Text style={[styles.title, { color: colors.text }]}>قائمة الطلاب</Text>
+      {loading && students.length === 0 ? (
+        <ActivityIndicator style={styles.center} color={colors.tint} />
+      ) : error ? (
+        <Text style={[styles.error, { color: '#c00' }]}>{error}</Text>
+      ) : (
+        <FlatList
+          style={styles.list}
+          data={students}
+          keyExtractor={(item) => String(item.studentId)}
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={loadStudents} />}
+          ListEmptyComponent={
+            <Text style={[styles.empty, { color: colors.icon }]}>لا يوجد طلاب متاحون</Text>
+          }
+          renderItem={({ item }) => (
+            <View style={[styles.card, { borderColor: colors.icon }]}>
+              <Text style={[styles.name, { color: colors.text }]}>
+                {item.firstName} {item.lastName}
+              </Text>
+            </View>
+          )}
+        />
+      )}
+      <TouchableOpacity
+        style={[styles.logoutButton, { backgroundColor: colors.tint }]}
+        onPress={logout}
+      >
+        <Text style={styles.logoutText}>تسجيل الخروج</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
+  container: { flex: 1, padding: 20, paddingTop: 60 },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' },
+  center: { marginTop: 40 },
+  list: { flex: 1 },
+  card: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 14,
+    marginBottom: 10,
+    backgroundColor: '#ffffff22',
+  },
+  name: { fontSize: 16, fontWeight: '600' },
+  empty: { textAlign: 'center', marginTop: 40, fontSize: 15 },
+  error: { textAlign: 'center', marginTop: 40, fontSize: 15 },
+  logoutButton: {
+    padding: 15,
+    borderRadius: 8,
     alignItems: 'center',
-    gap: 8,
+    marginTop: 12,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+  logoutText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
 });
