@@ -37,7 +37,7 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
         });
     }
 
-    public void SeedUser(string username, string password, string role, int? userId = null)
+    public int SeedUser(string username, string password, string role, int? userId = null)
     {
         using var scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SchoolDbContext>();
@@ -46,7 +46,9 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
             var user = new User { Username = username, PasswordHash = PasswordService.Hash(password), Role = role };
             db.Users.Add(user);
             db.SaveChanges();
+            return user.UserId;
         }
+        return db.Users.Single(u => u.Username == username).UserId;
     }
 
     public int SeedStudent(string username, string password, string firstName, string lastName)
