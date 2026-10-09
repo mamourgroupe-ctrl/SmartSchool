@@ -33,6 +33,16 @@ public sealed class Stage1AccessService
             _db.OrganizationMemberships.Any(m => m.OrganizationId == x.AcademicYear.OrganizationId && m.UserId == userId && m.IsActive));
     }
 
+    public async Task<bool> CanAdminTeacherAsync(int teacherUserId, ClaimsPrincipal user)
+    {
+        if (user.IsInRole(RoleNames.SuperAdmin)) return true;
+        if (!user.IsInRole(RoleNames.SchoolAdmin) || !TryUserId(user, out var userId)) return false;
+
+        return await _db.OrganizationMemberships.AnyAsync(x =>
+            x.UserId == teacherUserId && x.IsActive &&
+            _db.OrganizationMemberships.Any(m => m.OrganizationId == x.OrganizationId && m.UserId == userId && m.IsActive));
+    }
+
     public Task<int?> OrganizationForSectionAsync(int sectionId) =>
         _db.Sections.Where(x => x.SectionId == sectionId)
             .Select(x => (int?)x.SchoolClass.AcademicYear.OrganizationId)

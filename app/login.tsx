@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Config } from '@/constants/Config';
+import { Config, TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/constants/Config';
 
 export default function LoginScreen() {
   const [username, setUsername] = useState('');
@@ -42,6 +43,14 @@ export default function LoginScreen() {
       }
 
       if (response.ok) {
+        const token = data.accessToken ?? data.token;
+        const refreshToken = data.refreshToken;
+        if (token) {
+          await SecureStore.setItemAsync(TOKEN_KEY, token);
+        }
+        if (refreshToken) {
+          await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
+        }
         Alert.alert("نجاح", "تم تسجيل الدخول بنجاح!");
         router.replace('/(tabs)');
       } else {

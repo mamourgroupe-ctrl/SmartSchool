@@ -23,6 +23,8 @@ public class SchoolDbContext : DbContext
     public DbSet<Enrollment> Enrollments => Set<Enrollment>();
     public DbSet<AttendanceRecord> AttendanceRecords => Set<AttendanceRecord>();
     public DbSet<BehaviorRecord> BehaviorRecords => Set<BehaviorRecord>();
+    public DbSet<QuranRecord> QuranRecords => Set<QuranRecord>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -116,6 +118,23 @@ public class SchoolDbContext : DbContext
             entity.Property(x => x.Visibility).HasMaxLength(16).IsRequired();
             entity.HasIndex(x => new { x.StudentId, x.Date });
             entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<QuranRecord>(entity =>
+        {
+            entity.Property(x => x.SurahName).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.MemorizationType).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.TeacherNotes).HasMaxLength(1000);
+            entity.HasIndex(x => new { x.StudentId, x.Date });
+            entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<RefreshToken>(entity =>
+        {
+            entity.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.HasIndex(x => x.UserId);
+            entity.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

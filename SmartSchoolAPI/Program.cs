@@ -13,13 +13,34 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<SchoolDbContext>(options => options.UseSqlite("Data Source=school_system.db"));
 builder.Services.AddControllers();
+
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]?>();
+if (allowedOrigins is not { Length: > 0 })
+{
+    var envOrigins = Environment.GetEnvironmentVariable("SMARTSCHOOL_CORS_ORIGINS");
+    if (!string.IsNullOrWhiteSpace(envOrigins))
+        allowedOrigins = envOrigins.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyHeader()
-              .AllowAnyMethod();
+        if (allowedOrigins is { Length: > 0 })
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+        }
+        else if (builder.Environment.IsDevelopment())
+        {
+            // Development fallback for local tooling; production must configure origins.
+            policy.AllowAnyOrigin()
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
+        // Production without configured origins: no cross-origin requests are allowed (fail closed).
     });
 });
 
@@ -61,6 +82,12 @@ builder.Services.AddRateLimiter(options =>
         limiter.Window = TimeSpan.FromMinutes(1);
         limiter.QueueLimit = 0;
     });
+    options.AddFixedWindowLimiter("refresh", limiter =>
+    {
+        limiter.PermitLimit = 20;
+        limiter.Window = TimeSpan.FromMinutes(1);
+        limiter.QueueLimit = 0;
+    });
     options.OnRejected = async (context, token) =>
     {
         context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
@@ -75,6 +102,12 @@ app.UseExceptionHandler(exceptionApp => exceptionApp.Run(async context =>
     context.Response.ContentType = "application/json";
     await context.Response.WriteAsJsonAsync(new { success = false, message = "An unexpected error occurred.", errors = Array.Empty<string>() });
 }));
+
+if (!app.Environment.IsDevelopment())
+{
+    // TLS is terminated at the reverse proxy; HSTS instructs browsers to always use HTTPS.
+    app.UseHsts();
+}
 
 app.UseCors();
 

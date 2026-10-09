@@ -1,8 +1,9 @@
-﻿from fastapi import FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.ai import router as ai_router
 from app.api.v1.auth import router as auth_router
+from app.core.config import settings
 
 
 app = FastAPI(
@@ -11,10 +12,10 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Add CORS middleware
+# CORS is restricted to the configured origin list (no wildcard with credentials).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origin_list(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,7 +28,7 @@ app.include_router(
 
 app.include_router(
     auth_router,
-    prefix="/api",
+    prefix="/api/v1",
 )
 
 

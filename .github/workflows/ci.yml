@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # .NET API + integration tests + EF Core migration verification.
+  dotnet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install dotnet-ef
+        run: dotnet tool install --global dotnet-ef --version 10.*
+      - name: Add dotnet tools to PATH
+        run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+      - name: Build
+        run: dotnet build SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj
+      - name: Migrations match model
+        run: dotnet ef migrations has-pending-model-changes --project SmartSchoolAPI/SmartSchoolAPI.csproj --no-build
+      - name: Apply migrations
+        run: dotnet ef database update --project SmartSchoolAPI/SmartSchoolAPI.csproj --no-build
+      - name: Test
+        run: dotnet test SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj --no-build
+
+  # Python (FastAPI) backend tests.
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # requirements.txt pins numpy==2.5.2 which requires Python >= 3.12.
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Test
+        run: pytest
+
+  # Expo (React Native) type check.
+  expo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm ci
+      - name: Type-check
+        run: npx tsc --noEmit

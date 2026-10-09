@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="SmartSchoolMobile.TeachersPage"
@@ -16,7 +16,7 @@
                             <Label Text="{Binding FirstName}" FontAttributes="Bold" FontSize="16" TextColor="#111827" />
                             <Label Text="{Binding LastName}" FontSize="16" TextColor="#111827" />
                             <Label Text="|" TextColor="#9CA3AF" FontSize="16" />
-                            <Label Text="{Binding Subject}" TextColor="#2563EB" FontSize="16" FontAttributes="Bold" />
+                            <Label Text="{Binding SubjectSpecialty}" TextColor="#2563EB" FontSize="16" FontAttributes="Bold" />
                         </HorizontalStackLayout>
                     </Border>
                 </DataTemplate>

@@ -1,14 +1,25 @@
-﻿<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="SmartSchoolMobile.QuranProgressPage"
              Title="متابعة الحفظ القرآنية"
              BackgroundColor="#F4F6F9">
-    <VerticalStackLayout Spacing="20" Padding="25">
+    <VerticalStackLayout Spacing="15" Padding="25">
         <Border BackgroundColor="#047857" StrokeShape="RoundRectangle 12" Padding="15">
             <Label Text="سجل الحفظ والمراجعة اليومي" FontSize="20" FontAttributes="Bold" TextColor="White" HorizontalOptions="Center" />
         </Border>
-        <CollectionView x:Name="ProgressCollectionView" HeightRequest="380">
+        <Label Text="اختر الطالب:" FontSize="16" FontAttributes="Bold" TextColor="#374151" />
+        <CollectionView x:Name="StudentsCollectionView" HeightRequest="140" SelectionMode="Single" SelectionChanged="OnStudentSelected">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Border BackgroundColor="White" StrokeShape="RoundRectangle 8" Padding="10" Margin="0,4" Stroke="#E5E7EB">
+                        <Label Text="{Binding FullName}" FontSize="15" TextColor="#111827" />
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+        <Label x:Name="StatusLabel" FontSize="14" HorizontalOptions="Center" TextColor="#4B5563" />
+        <CollectionView x:Name="ProgressCollectionView" HeightRequest="260">
             <CollectionView.ItemTemplate>
                 <DataTemplate>
                     <Border BackgroundColor="White" StrokeShape="RoundRectangle 8" Padding="15" Margin="0,6" Stroke="#E5E7EB">
@@ -16,9 +27,12 @@
                             <HorizontalStackLayout Spacing="10">
                                 <Label Text="{Binding SurahName}" FontAttributes="Bold" FontSize="16" TextColor="#065F46" />
                                 <Label Text="|" TextColor="#9CA3AF" FontSize="16" />
+                                <Label Text="{Binding DateText}" FontSize="14" TextColor="#4B5563" />
+                                <Label Text="|" TextColor="#9CA3AF" FontSize="16" />
                                 <Label Text="التقييم:" FontSize="14" TextColor="#4B5563" />
                                 <Label Text="{Binding Rating}" FontAttributes="Bold" FontSize="14" TextColor="#D97706" />
                             </HorizontalStackLayout>
+                            <Label Text="{Binding AyahRangeText}" FontSize="14" TextColor="#374151" />
                             <Label Text="{Binding TeacherNotes}" FontSize="14" TextColor="#374151" />
                         </VerticalStackLayout>
                     </Border>
