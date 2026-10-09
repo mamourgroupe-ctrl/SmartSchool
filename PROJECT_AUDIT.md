@@ -145,3 +145,5 @@ This makes build, test, migration-drift, dependency-install, and type errors vis
 
 ### Status
 No new features were added in this pass. P2 (PostgreSQL, TLS termination, MAUI auto-refresh) is intentionally deferred until the local .NET verification (`dotnet build -warnaserror`, `dotnet test`) and the first green CI run are complete.
+
+**Update (2026-10-09, PR #1):** The first full CI run is green on real runners: `dotnet` (build + `ef has-pending-model-changes` + `database update` + all 49 tests), `python` (full install on Python 3.12 + 10 tests), `expo` (`npm ci` + `tsc --noEmit`), and the Semgrep scan all pass. Two CI-breaking issues were found and fixed by CI itself: `IntegrationTestFactory.SeedUser` returned `void` while a new overload expected `int` (compile error), and the python job needed Python 3.12 (`numpy==2.5.2` requires >= 3.12). The hand-written EF migrations were confirmed consistent by `has-pending-model-changes` (no pending model changes). P2 is now unblocked.
