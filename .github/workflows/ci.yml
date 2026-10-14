@@ -49,7 +49,8 @@ jobs:
           if [ ! -f test.log ]; then exit 0; fi
           {
             echo "### Test failure"
-            grep -E "Failed |Assert\.|error [A-Z]+[0-9]+" test.log | head -60
+            # Context lines include the Expected/Actual values, which the annotations cannot carry.
+            grep -E -A 6 "Failed [A-Za-z].*\[|Assert\.|error [A-Z]+[0-9]+" test.log | head -100
           } >> "$GITHUB_STEP_SUMMARY" || true
           while IFS= read -r line; do
             echo "::error::$line"

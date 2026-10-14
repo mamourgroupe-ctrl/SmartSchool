@@ -31,9 +31,14 @@ public class AuthController(SchoolDbContext context, IConfiguration configuratio
         var valid = user is not null && !string.IsNullOrWhiteSpace(user.PasswordHash) && PasswordService.Verify(request.Password, user.PasswordHash);
         if (!valid)
         {
+            // The throttle is evaluated before the failure is recorded so that the documented
+            // semantics hold: FailureLimit failures are answered as failures (401) and only the
+            // attempts after that are throttled (429).
+            var throttleExceeded = loginThrottle.IsBlocked(request.Username, out var retryAfterSeconds);
             loginThrottle.RecordFailure(request.Username);
             await WriteAuditAsync(user?.UserId, "LOGIN_FAILURE", "User", user?.UserId.ToString());
-            if (loginThrottle.IsBlocked(request.Username, out var retryAfterSeconds))
+
+            if (throttleExceeded)
             {
                 Response.Headers["Retry-After"] = retryAfterSeconds.ToString(CultureInfo.InvariantCulture);
                 await WriteAuditAsync(null, "LOGIN_THROTTLED", "User", null);
