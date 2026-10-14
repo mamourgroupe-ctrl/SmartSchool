@@ -180,14 +180,18 @@ public sealed class Stage1AdministrationController : ControllerBase
     public async Task<IActionResult> CreateGuardian(int studentId, [FromBody] CreateGuardianCommand command)
     {
         if (!await _access.CanAdminStudentAsync(studentId, User)) return NotFound();
-        if (await _db.Users.AnyAsync(x => x.Username == command.Username)) return Conflict(new { message = "Username already exists." });
+        // Uses the shared username policy instead of a case-sensitive SQL comparison, so this path
+        // and the students/teachers paths refuse exactly the same set of duplicates (P0-B).
+        if (!UsernameRules.TryNormalize(command.Username, out var guardianUsername, out var guardianUsernameError))
+            return BadRequest(new { message = guardianUsernameError });
+        if (await UsernameRules.IsTakenAsync(_db, guardianUsername)) return Conflict(new { message = "Username already exists." });
 
         var organizationId = await _db.Enrollments.Where(x => x.StudentId == studentId).OrderByDescending(x => x.StartDate)
             .Select(x => (int?)x.AcademicYear.OrganizationId).FirstOrDefaultAsync();
         if (organizationId is null) return Conflict(new { message = "Student must be enrolled before linking a guardian." });
 
         Stage1AccessService.TryUserId(User, out var actor);
-        var user = new User { Username = command.Username.Trim(), PasswordHash = PasswordService.Hash(command.Password), Role = RoleNames.Parent };
+        var user = new User { Username = guardianUsername, PasswordHash = PasswordService.Hash(command.Password), Role = RoleNames.Parent };
         _db.Users.Add(user);
         await _db.SaveChangesAsync();
 
@@ -225,7 +229,7 @@ public sealed record CreateTermCommand([param: Required, StringLength(80)] strin
 public sealed record CreateClassroomCommand([param: Required, StringLength(80)] string Name, [param: StringLength(40)] string? GradeLevel);
 public sealed record CreateSectionCommand([param: Required, StringLength(80)] string Name, int? TeacherId);
 public sealed record CreateEnrollmentCommand([param: Range(1, int.MaxValue)] int StudentId, [param: Range(1, int.MaxValue)] int AcademicYearId, [param: Range(1, int.MaxValue)] int TermId, [param: Range(1, int.MaxValue)] int SectionId, DateOnly StartDate);
-public sealed record CreateGuardianCommand([param: Required, StringLength(80)] string Username, [param: Required, MinLength(8)] string Password, [param: Required, StringLength(80)] string FirstName, [param: Required, StringLength(80)] string LastName, [param: Required, StringLength(60)] string Relationship, [param: StringLength(40)] string? Phone, [param: StringLength(160)] string? Email, bool IsAuthorized = true);
+public sealed record CreateGuardianCommand([param: Required, StringLength(80), MinLength(3)] string Username, [param: Required, MinLength(8)] string Password, [param: Required, StringLength(80)] string FirstName, [param: Required, StringLength(80)] string LastName, [param: Required, StringLength(60)] string Relationship, [param: StringLength(40)] string? Phone, [param: StringLength(160)] string? Email, bool IsAuthorized = true);
 
 public sealed record OrganizationResponse(int OrganizationId, string Name, bool IsActive);
 public sealed record AcademicYearResponse(int AcademicYearId, int OrganizationId, string Name);

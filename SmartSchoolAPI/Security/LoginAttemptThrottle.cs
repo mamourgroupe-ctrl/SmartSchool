@@ -140,10 +140,13 @@ public sealed class LoginAttemptThrottle
         }
     }
 
-    /// <summary>Login identifiers are compared case-insensitively after trimming, matching how usernames are treated.</summary>
+    /// <summary>
+    /// Throttle keys use <see cref="UsernameRules.ComparisonKey"/>, the single application-wide
+    /// definition of "the same username" (P0-B), truncated so a long input cannot grow the key.
+    /// </summary>
     private static string Normalize(string username)
     {
-        var normalized = username is null ? string.Empty : username.Trim().ToLowerInvariant();
+        var normalized = UsernameRules.ComparisonKey(username);
         return normalized.Length > MaxKeyLength ? normalized[..MaxKeyLength] : normalized;
     }
 

@@ -84,6 +84,22 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
         return scope.ServiceProvider.GetRequiredService<SchoolDbContext>().AuditLogs.AsNoTracking().ToList();
     }
 
+    /// <summary>
+    /// Inserts two accounts that share one stored username, bypassing the application guard, to
+    /// reproduce the legacy data shape the P0-B checks were added for (and that
+    /// find_duplicate_usernames.py reports before a unique index could ever be applied).
+    /// </summary>
+    public int SeedDuplicateAccounts(string username, string password, string role)
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SchoolDbContext>();
+        var first = new User { Username = username, PasswordHash = PasswordService.Hash(password), Role = role };
+        var second = new User { Username = username, PasswordHash = PasswordService.Hash(password), Role = role };
+        db.Users.AddRange(first, second);
+        db.SaveChanges();
+        return first.UserId;
+    }
+
     /// <summary>Stored usernames, used to prove what the create paths actually persisted.</summary>
     public List<string> Usernames()
     {

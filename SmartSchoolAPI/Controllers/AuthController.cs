@@ -27,9 +27,16 @@ public class AuthController(SchoolDbContext context, IConfiguration configuratio
         // verification would let an attacker deny a legitimate user access indefinitely by
         // forcing five failures per minute from rotating addresses (P0-A review finding).
         // Wrong credentials stay throttled below, so the guessing rate is still bounded.
-        var user = await context.Users.SingleOrDefaultAsync(u => u.Username == request.Username);
-        var valid = user is not null && !string.IsNullOrWhiteSpace(user.PasswordHash) && PasswordService.Verify(request.Password, user.PasswordHash);
-        if (!valid)
+        //
+        // OrderBy keeps the lookup deterministic if legacy duplicate rows exist for the same
+        // username: SingleOrDefaultAsync would throw and answer 500, which both locks the owner
+        // out permanently and tells the caller that the account exists (P0-B F5/F6 findings).
+        var user = await context.Users.OrderBy(u => u.UserId).FirstOrDefaultAsync(u => u.Username == request.Username);
+
+        // The credential check always performs the password hashing work, so "unknown account"
+        // and "wrong password" are indistinguishable in the response and in the time taken.
+        var check = LoginCredentialCheck.Verify(user, request.Password);
+        if (!check.PasswordMatches)
         {
             // The throttle is evaluated before the failure is recorded so that the documented
             // semantics hold: FailureLimit failures are answered as failures (401) and only the

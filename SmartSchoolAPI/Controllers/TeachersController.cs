@@ -49,8 +49,15 @@ public class TeachersController : ControllerBase {
     [Authorize(Roles = RoleNames.SuperAdmin + "," + RoleNames.SchoolAdmin)]
     [HttpPost]
     public async Task<IActionResult> CreateTeacher([FromBody] CreateTeacherDto dto) {
+        // Same rules as every other account-creation path (P0-B): the teachers endpoint used to
+        // store whatever username it was given, duplicates included.
+        if (!UsernameRules.TryNormalize(dto.Username, out var username, out var usernameError))
+            return BadRequest(new { message = usernameError });
+        if (await UsernameRules.IsTakenAsync(_context, username))
+            return Conflict(new { message = "Username already exists." });
+
         var user = new User {
-            Username = dto.Username,
+            Username = username,
             PasswordHash = PasswordService.Hash(dto.Password),
             Role = RoleNames.Teacher
         };
@@ -68,14 +75,16 @@ public class TeachersController : ControllerBase {
     }
 }
 public class CreateTeacherDto {
-    [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.MinLength(3)]
+    // The length bounds match CreateGuardianCommand and CreateStudentDto so all three creation
+    // paths accept exactly the same usernames; the trimmed length is enforced by UsernameRules.
+    [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.MinLength(3), System.ComponentModel.DataAnnotations.StringLength(80)]
     public string Username { get; set; } = string.Empty;
     [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.MinLength(8)]
     public string Password { get; set; } = string.Empty;
-    [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.MinLength(1)]
+    [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.MinLength(1), System.ComponentModel.DataAnnotations.StringLength(80)]
     public string FirstName { get; set; } = string.Empty;
-    [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.MinLength(1)]
+    [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.MinLength(1), System.ComponentModel.DataAnnotations.StringLength(80)]
     public string LastName { get; set; } = string.Empty;
-    [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.MinLength(1)]
+    [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.MinLength(1), System.ComponentModel.DataAnnotations.StringLength(80)]
     public string SubjectSpecialty { get; set; } = string.Empty;
 }

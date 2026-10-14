@@ -5,6 +5,14 @@ public static class PasswordService
     private const int Iterations = 210000;
     private const int SaltSize = 16;
     private const int KeySize = 32;
+    /// <summary>
+    /// Fixed hash used by the login path when the submitted username does not exist, so that the
+    /// expensive part of the credential check always runs (see LoginCredentialCheck). It is a hash
+    /// of a random 32-byte value generated once per process, so no password can authenticate
+    /// against it.
+    /// </summary>
+    public static string DummyHash { get; } = Hash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)));
+
     public static string Hash(string password)
     {
         var salt = RandomNumberGenerator.GetBytes(SaltSize);
