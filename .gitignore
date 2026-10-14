@@ -69,3 +69,7 @@ stdin-test.txt
 *.key
 *.pem
 secrets/
+
+# Python tooling (SmartSchoolAPI/Tools, backend)
+__pycache__/
+*.pyc

@@ -118,14 +118,83 @@ public sealed class LoginThrottleTests
         Assert.Equal((HttpStatusCode)429, throttled.StatusCode);
         Assert.True(throttled.Headers.TryGetValues("Retry-After", out var retryAfter));
         Assert.NotEmpty(retryAfter!);
+    }
 
-        // The account is not permanently locked: after the window the owner can log in again.
-        factory.Time.Advance(TimeSpan.FromMinutes(1));
+    /// <summary>
+    /// P0-A review regression test: throttling must never lock the account owner out. Before the
+    /// fix the throttle was evaluated before credential verification, so five wrong passwords per
+    /// minute from rotating addresses denied the owner access indefinitely and for free.
+    /// </summary>
+    [Fact]
+    public async Task ThrottledAccount_OwnerWithCorrectPassword_CanStillAuthenticate()
+    {
+        using var factory = new IntegrationTestFactory();
+        factory.SeedUser("lockout-user", "Correct123!", RoleNames.Student);
+
+        for (var i = 0; i < 5; i++)
+        {
+            using var attacker = factory.CreateClient();
+            attacker.DefaultRequestHeaders.Add(TestClientIdentityProvider.HeaderName, $"lockout-attacker-{i}");
+            using var failure = await attacker.PostAsJsonAsync(
+                "/api/auth/login", new { Username = "lockout-user", Password = "Wrong123!" });
+            Assert.Equal(HttpStatusCode.Unauthorized, failure.StatusCode);
+        }
+
+        using var prober = factory.CreateClient();
+        prober.DefaultRequestHeaders.Add(TestClientIdentityProvider.HeaderName, "lockout-prober");
+        using var stillThrottled = await prober.PostAsJsonAsync(
+            "/api/auth/login", new { Username = "lockout-user", Password = "Wrong123!" });
+        Assert.Equal((HttpStatusCode)429, stillThrottled.StatusCode);
 
         using var owner = factory.CreateClient();
-        owner.DefaultRequestHeaders.Add(TestClientIdentityProvider.HeaderName, "owner-client");
+        owner.DefaultRequestHeaders.Add(TestClientIdentityProvider.HeaderName, "lockout-owner");
         using var success = await owner.PostAsJsonAsync(
-            "/api/auth/login", new { Username = "throttle-user", Password = "Correct123!" });
+            "/api/auth/login", new { Username = "lockout-user", Password = "Correct123!" });
         Assert.Equal(HttpStatusCode.OK, success.StatusCode);
+    }
+
+    /// <summary>
+    /// The window is evaluated against the injected clock, which also proves the test host really
+    /// uses the frozen <c>TimeProvider</c> (with the system clock the last attempt would be 429).
+    /// </summary>
+    [Fact]
+    public async Task FailedAttempts_AreForgottenAfterTheWindow()
+    {
+        using var factory = new IntegrationTestFactory();
+        factory.SeedUser("window-user", "Correct123!", RoleNames.Student);
+
+        for (var i = 0; i < 6; i++)
+        {
+            using var prober = factory.CreateClient();
+            prober.DefaultRequestHeaders.Add(TestClientIdentityProvider.HeaderName, $"window-probe-{i}");
+            using var response = await prober.PostAsJsonAsync(
+                "/api/auth/login", new { Username = "window-user", Password = "Wrong123!" });
+            Assert.Equal(i < 5 ? HttpStatusCode.Unauthorized : (HttpStatusCode)429, response.StatusCode);
+        }
+
+        factory.Time.Advance(TimeSpan.FromMinutes(1));
+
+        using var afterWindow = factory.CreateClient();
+        afterWindow.DefaultRequestHeaders.Add(TestClientIdentityProvider.HeaderName, "window-after");
+        using var wrongAgain = await afterWindow.PostAsJsonAsync(
+            "/api/auth/login", new { Username = "window-user", Password = "Wrong123!" });
+        Assert.Equal(HttpStatusCode.Unauthorized, wrongAgain.StatusCode);
+    }
+
+    [Fact]
+    public void TrackedAccounts_AreHardCapped()
+    {
+        const int capacity = 50;
+        var throttle = new LoginAttemptThrottle(
+            new TestTimeProvider(),
+            new LoginThrottleOptions { FailureLimit = 5, Window = TimeSpan.FromMinutes(1), MaxTrackedAccounts = capacity });
+
+        for (var i = 0; i < 500; i++) throttle.RecordFailure($"flooded-account-{i}");
+
+        Assert.Equal(capacity, throttle.TrackedAccountCount);
+
+        // Accounts that are already tracked keep working while the table is full.
+        for (var i = 0; i < 5; i++) throttle.RecordFailure("flooded-account-0");
+        Assert.True(throttle.IsBlocked("flooded-account-0", out _));
     }
 }

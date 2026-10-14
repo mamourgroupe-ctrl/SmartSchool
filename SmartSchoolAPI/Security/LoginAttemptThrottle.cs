@@ -11,18 +11,23 @@ public sealed class LoginThrottleOptions
     /// <summary>Length of the fixed window. The window index changes over time, so the throttle always clears itself.</summary>
     public TimeSpan Window { get; init; } = TimeSpan.FromMinutes(1);
 
-    /// <summary>Upper bound on tracked accounts before stale windows are pruned.</summary>
+    /// <summary>Hard upper bound on tracked accounts. When the table is full, new accounts are not tracked.</summary>
     public int MaxTrackedAccounts { get; init; } = 5000;
 }
 
 /// <summary>
 /// Temporary, self-clearing throttle for failed login attempts.
 ///
-/// design notes:
+/// Design notes:
 /// - Failures are counted per normalized username inside a fixed time window. There is
 ///   deliberately no permanent account lock, so an attacker cannot deny an account owner
 ///   access forever: once the window rolls over the account is usable again.
+/// - The counter only gates attempts with <em>wrong</em> credentials. Credential verification
+///   itself always happens (see AuthController), so forcing failures can never lock the
+///   legitimate owner out.
 /// - Successful authentication clears the counter.
+/// - The tracked-account table is hard bounded, so a flood of distinct usernames cannot grow
+///   memory without limit.
 /// - The throttle is per process (in-memory). A multi-instance deployment will need a
 ///   shared store; this is documented in docs/engineering/P0_A_RATE_LIMITING.md.
 /// </summary>
@@ -56,12 +61,52 @@ public sealed class LoginAttemptThrottle
         return true;
     }
 
-    /// <summary>Records one failed attempt. The counter is bounded, so flooding cannot grow it without limit.</summary>
+    /// <summary>
+    /// Records one failed attempt for the account.
+    ///
+    /// The tracked-account table is hard bounded by <see cref="LoginThrottleOptions.MaxTrackedAccounts"/>:
+    /// stale windows are pruned first and, if the table is still full, the new account is simply
+    /// not tracked. Memory cannot grow with the number of distinct usernames an attacker submits,
+    /// and accounts that are already tracked keep working normally.
+    /// </summary>
     public void RecordFailure(string username)
     {
-        PruneStaleWindows();
+        var key = Normalize(username);
         var windowIndex = CurrentWindowIndex();
-        var counter = _counters.GetOrAdd(Normalize(username), _ => new Counter(windowIndex));
+
+        if (_counters.TryGetValue(key, out var tracked))
+        {
+            UpdateWindow(tracked, windowIndex);
+            return;
+        }
+
+        PruneStaleWindows();
+        if (_counters.Count >= Capacity) return;
+
+        UpdateWindow(_counters.GetOrAdd(key, _ => new Counter(windowIndex)), windowIndex);
+    }
+
+    /// <summary>Clears the tracked failures after a successful authentication.</summary>
+    public void Reset(string username) => _counters.TryRemove(Normalize(username), out _);
+
+    /// <summary>Number of accounts currently tracked; exposed for tests of the memory bound.</summary>
+    internal int TrackedAccountCount => _counters.Count;
+
+    private int Limit => _options.FailureLimit <= 0 ? 1 : _options.FailureLimit;
+
+    private int Capacity => _options.MaxTrackedAccounts <= 0 ? 1 : _options.MaxTrackedAccounts;
+
+    private long WindowSeconds
+    {
+        get
+        {
+            var seconds = (long)_options.Window.TotalSeconds;
+            return seconds <= 0 ? 60 : seconds;
+        }
+    }
+
+    private void UpdateWindow(Counter counter, long windowIndex)
+    {
         lock (counter)
         {
             if (counter.WindowIndex != windowIndex)
@@ -71,20 +116,6 @@ public sealed class LoginAttemptThrottle
             }
 
             if (counter.Count < Limit) counter.Count++;
-        }
-    }
-
-    /// <summary>Clears the tracked failures after a successful authentication.</summary>
-    public void Reset(string username) => _counters.TryRemove(Normalize(username), out _);
-
-    private int Limit => _options.FailureLimit <= 0 ? 1 : _options.FailureLimit;
-
-    private long WindowSeconds
-    {
-        get
-        {
-            var seconds = (long)_options.Window.TotalSeconds;
-            return seconds <= 0 ? 60 : seconds;
         }
     }
 
@@ -100,7 +131,7 @@ public sealed class LoginAttemptThrottle
 
     private void PruneStaleWindows()
     {
-        if (_counters.Count < (_options.MaxTrackedAccounts <= 0 ? 5000 : _options.MaxTrackedAccounts)) return;
+        if (_counters.Count < Capacity) return;
 
         var windowIndex = CurrentWindowIndex();
         foreach (var pair in _counters)

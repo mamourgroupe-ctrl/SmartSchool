@@ -84,6 +84,14 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
         return scope.ServiceProvider.GetRequiredService<SchoolDbContext>().AuditLogs.AsNoTracking().ToList();
     }
 
+    /// <summary>Stored usernames, used to prove what the create paths actually persisted.</summary>
+    public List<string> Usernames()
+    {
+        using var scope = Services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<SchoolDbContext>().Users.AsNoTracking()
+            .Select(x => x.Username).ToList();
+    }
+
     public int SeedUser(string username, string role) => SeedUser(username, "Correct123!", role);
 
     public void AddMembership(int organizationId, int userId)

@@ -23,22 +23,24 @@ public class AuthController(SchoolDbContext context, IConfiguration configuratio
     [EnableRateLimiting("login")]
     public async Task<IActionResult> Login(LoginDto request)
     {
-        // Temporary throttle: protects a single account against distributed guessing while
-        // remaining self-clearing (no permanent lock, so an account cannot be denied forever).
-        if (loginThrottle.IsBlocked(request.Username, out var retryAfterSeconds))
-        {
-            Response.Headers["Retry-After"] = retryAfterSeconds.ToString(CultureInfo.InvariantCulture);
-            await WriteAuditAsync(null, "LOGIN_THROTTLED", "User", null);
-            return StatusCode(StatusCodes.Status429TooManyRequests,
-                new { success = false, message = "Too many failed attempts. Please try again later." });
-        }
-
+        // Credentials are always verified, even while the account is throttled. Blocking before
+        // verification would let an attacker deny a legitimate user access indefinitely by
+        // forcing five failures per minute from rotating addresses (P0-A review finding).
+        // Wrong credentials stay throttled below, so the guessing rate is still bounded.
         var user = await context.Users.SingleOrDefaultAsync(u => u.Username == request.Username);
         var valid = user is not null && !string.IsNullOrWhiteSpace(user.PasswordHash) && PasswordService.Verify(request.Password, user.PasswordHash);
         if (!valid)
         {
             loginThrottle.RecordFailure(request.Username);
             await WriteAuditAsync(user?.UserId, "LOGIN_FAILURE", "User", user?.UserId.ToString());
+            if (loginThrottle.IsBlocked(request.Username, out var retryAfterSeconds))
+            {
+                Response.Headers["Retry-After"] = retryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+                await WriteAuditAsync(null, "LOGIN_THROTTLED", "User", null);
+                return StatusCode(StatusCodes.Status429TooManyRequests,
+                    new { success = false, message = "Too many failed attempts. Please try again later." });
+            }
+
             return Unauthorized(new { success = false, message = "Invalid username or password." });
         }
 
