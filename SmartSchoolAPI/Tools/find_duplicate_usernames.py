@@ -4,34 +4,48 @@ Why this exists
 ---------------
 Before a unique index (or a normalized unique index) can be applied to a real database, the
 existing data must be proven clean. This tool answers that question without modifying anything:
-the database is opened with SQLite's ``mode=ro`` URI, no transaction is used, and no row is
-written. It never reads or prints password hashes.
+
+* the database is opened with SQLite's ``mode=ro`` URI and the connection additionally runs
+  ``PRAGMA query_only = 1``, so INSERT/UPDATE/DELETE/DDL cannot be executed even by accident;
+* the SHA-256 of the file is printed before and after the scan, and a mismatch fails the run;
+* no transaction is opened, no row is written, and no password hash is ever read or printed.
+
+Coverage
+--------
+The report scans the ``Users`` table and then *checks* that it is the only place a username can
+live: every table's columns are inspected and any column whose name looks like a username is
+listed. If a second username column exists, the report says so loudly instead of assuming
+completeness. Completeness signals (integrity check, foreign-key check, migration history) are
+reported so a copy can be trusted before it is used as evidence.
 
 Usage
 -----
     python find_duplicate_usernames.py school_system.db
-    python find_duplicate_usernames.py school_system.db --json
-    python find_duplicate_usernames.py "/path/to/copy of school_system.db" --mask
+    python find_duplicate_usernames.py "/path/to/copy of school_system.db" --verify
+    python find_duplicate_usernames.py copy.db --json --mask
 
 Exit codes
 ----------
-    0  no conflicts found
+    0  no conflicts found (and, with --verify, no integrity problems)
     2  conflicts found (details printed)
-    1  usage or database error
+    1  usage, database or verification error
 
-Always run this against a copy of the production file.
+Always run this against a copy of the production file, never against the live file.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 import sqlite3
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 CONFLICT_KINDS = ("exact", "case", "whitespace")
+USERNAME_COLUMN_PATTERN = re.compile(r"^(user_?name|login|loginname|account)$", re.IGNORECASE)
 
 
 def normalize_case(username: str) -> str:
@@ -40,7 +54,10 @@ def normalize_case(username: str) -> str:
 
 
 def normalize_full(username: str) -> str:
-    """Case + surrounding-whitespace normalization (the proposed key for a normalized unique index)."""
+    """Case + surrounding-whitespace normalization (the key of the proposed unique index).
+
+    This mirrors UsernameRules.ComparisonKey: Trim() then ToLowerInvariant().
+    """
     return username.strip().lower()
 
 
@@ -54,11 +71,22 @@ def mask(username: str) -> str:
     return "*" * max(len(username) - len(visible), 1) + visible
 
 
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def connect_read_only(path: Path) -> sqlite3.Connection:
     if not path.exists():
         raise SystemExit(f"error: database not found: {path}")
+    # mode=ro guarantees the file cannot be written; query_only makes it a connection-level
+    # guarantee as well, so even a future edit that adds a statement cannot modify anything.
     connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA query_only = 1")
     return connection
 
 
@@ -96,12 +124,86 @@ def distinct_raw_groups(users: list[dict], key) -> list[dict]:
     ]
 
 
-def build_report(users: list[dict], database: str, hide_names: bool) -> dict:
+def schema_report(connection: sqlite3.Connection) -> dict:
+    """Completeness and coverage signals, all read-only."""
+    tables = [
+        row["name"]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ).fetchall()
+    ]
+
+    table_counts = {}
+    for table in tables:
+        table_counts[table] = connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+
+    username_columns: dict[str, list[str]] = {}
+    user_id_columns: list[str] = []
+    columns_by_table: dict[str, list[str]] = {}
+    for table in tables:
+        columns = [row["name"] for row in connection.execute(f'PRAGMA table_info("{table}")').fetchall()]
+        columns_by_table[table] = columns
+        matching = [column for column in columns if USERNAME_COLUMN_PATTERN.match(column)]
+        if matching:
+            username_columns[table] = matching
+        if "UserId" in columns:
+            user_id_columns.append(table)
+
+    users_table_sql = None
+    if "Users" in tables:
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'Users'"
+        ).fetchone()
+        users_table_sql = row["sql"] if row else None
+
+    unique_indexes: list[dict] = []
+    if "Users" in tables:
+        for index in connection.execute('PRAGMA index_list("Users")').fetchall():
+            index_columns = [
+                info["name"] for info in connection.execute(f'PRAGMA index_info("{index["name"]}")').fetchall()
+            ]
+            if index["unique"]:
+                unique_indexes.append(
+                    {"name": index["name"], "columns": index_columns, "origin": index["origin"]}
+                )
+
+    migrations: dict | None = None
+    if "__EFMigrationsHistory" in tables:
+        applied = [
+            row["MigrationId"]
+            for row in connection.execute("SELECT MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId").fetchall()
+        ]
+        migrations = {"appliedCount": len(applied), "lastApplied": applied[-1] if applied else None}
+
+    collations = [row[0] for row in connection.execute("PRAGMA collation_list").fetchall()]
+    integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+    foreign_key_violations = len(connection.execute("PRAGMA foreign_key_check").fetchall())
+
+    return {
+        "integrityCheck": integrity,
+        "foreignKeyViolations": foreign_key_violations,
+        "journalMode": connection.execute("PRAGMA journal_mode").fetchone()[0],
+        "userVersion": connection.execute("PRAGMA user_version").fetchone()[0],
+        "tables": tables,
+        "tableCounts": table_counts,
+        "tablesWithUserId": user_id_columns,
+        "usernameColumns": username_columns,
+        "usernameCoverageComplete": list(username_columns.keys()) == ["Users"],
+        "usersTableSql": users_table_sql,
+        "uniqueIndexesOnUsers": unique_indexes,
+        "migrations": migrations,
+        "collations": collations[:8],
+        "encodings": connection.execute("PRAGMA encoding").fetchone()[0],
+    }
+
+
+def build_report(users: list[dict], database: str, hide_names: bool, schema: dict, fingerprint: dict) -> dict:
     """Classify conflicts by the index they would block. Buckets are mutually informative:
     a single conflict can appear under several buckets because several index shapes are affected."""
     exact = group_by(users, lambda name: name)
     case_groups = distinct_raw_groups(users, normalize_case)
     whitespace_groups = distinct_raw_groups(users, normalize_whitespace)
+    normalized_groups = distinct_raw_groups(users, normalize_full)
 
     def render(groups: list[dict]) -> list[dict]:
         rendered = []
@@ -130,28 +232,44 @@ def build_report(users: list[dict], database: str, hide_names: bool) -> dict:
 
     report = {
         "database": database,
+        "fingerprint": fingerprint,
         "totalUsers": len(users),
         "exactDuplicates": render(exact),
         "caseInsensitiveCollisions": render(case_groups),
         "whitespaceCollisions": render(whitespace_groups),
+        "normalizationConflicts": render(normalized_groups),
         "paddedUsernames": padded,
+        "schema": schema,
     }
     # The normalized index can only be created when no two accounts collapse onto the same key.
-    report["conflictCount"] = len(report["exactDuplicates"]) + len(report["whitespaceCollisions"])
+    affected = {account["userId"] for account in report["normalizationConflicts"] for account in account["accounts"]}
+    affected.update(account["userId"] for account in padded)
+    report["conflictCount"] = len(report["normalizationConflicts"])
+    report["affectedAccounts"] = len(affected)
     report["safeToAddExactUniqueIndex"] = len(report["exactDuplicates"]) == 0
-    report["safeToAddNormalizedUniqueIndex"] = (
-        len(report["caseInsensitiveCollisions"]) == 0 and len(report["whitespaceCollisions"]) == 0
-    )
+    report["safeToAddNormalizedUniqueIndex"] = len(report["normalizationConflicts"]) == 0 and len(padded) == 0
     return report
 
 
 def print_human(report: dict) -> None:
+    fingerprint = report["fingerprint"]
+    schema = report["schema"]
     print(f"database: {report['database']}")
+    print(f"sha256 before: {fingerprint['before']}")
+    print(f"sha256 after : {fingerprint['after']}")
+    print(f"file unchanged by the scan: {fingerprint['unchanged']}")
+    print(f"integrity_check: {schema['integrityCheck']} | foreign_key_check violations: {schema['foreignKeyViolations']}")
+    print(f"journal_mode: {schema['journalMode']} | encoding: {schema['encodings']}")
+    print(f"tables: {len(schema['tables'])} | migrations: {schema['migrations']}")
+    print(f"username columns found in: {schema['usernameColumns']}")
+    print(f"username coverage complete (only Users): {schema['usernameCoverageComplete']}")
+    print(f"unique indexes on Users: {schema['uniqueIndexesOnUsers']}")
     print(f"users: {report['totalUsers']}")
     for kind, label in (
         ("exactDuplicates", "exact duplicates (break login: SingleOrDefaultAsync)"),
         ("caseInsensitiveCollisions", "case-insensitive collisions (differing case only)"),
         ("whitespaceCollisions", "whitespace collisions (differing surrounding spaces only)"),
+        ("normalizationConflicts", "conflicts under the unified rule (trim + case fold)"),
     ):
         groups = report[kind]
         print(f"{label}: {len(groups)}")
@@ -163,10 +281,31 @@ def print_human(report: dict) -> None:
     print(f"padded usernames (stored with surrounding spaces): {len(report['paddedUsernames'])}")
     for account in report["paddedUsernames"]:
         print(f"  - #{account['userId']}:{account['username']!r}({account['role']})")
+    print(f"accounts affected by a conflict: {report['affectedAccounts']}")
     print(f"safe to add UNIQUE(Username): {report['safeToAddExactUniqueIndex']}")
     print(f"safe to add normalized unique index: {report['safeToAddNormalizedUniqueIndex']}")
     if report["conflictCount"]:
         print("action: resolve the listed conflicts manually; this tool never renames or deletes accounts.")
+
+
+def verify_only(report: dict) -> int:
+    schema = report["schema"]
+    problems = []
+    if schema["integrityCheck"] != "ok":
+        problems.append(f"integrity_check: {schema['integrityCheck']}")
+    if schema["foreignKeyViolations"]:
+        problems.append(f"foreign_key_check: {schema['foreignKeyViolations']} violations")
+    if not schema["usernameCoverageComplete"]:
+        problems.append(f"username columns outside Users: {schema['usernameColumns']}")
+    if schema["migrations"] is None:
+        problems.append("__EFMigrationsHistory is missing (is this really an application database?)")
+    if not report["fingerprint"]["unchanged"]:
+        problems.append("the file changed during the scan")
+
+    print("verification: " + ("OK" if not problems else "PROBLEMS FOUND"))
+    for problem in problems:
+        print(f"  - {problem}")
+    return 0 if not problems else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -174,24 +313,46 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("database", help="path to a SQLite database file (use a copy, never the live file)")
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     parser.add_argument("--mask", action="store_true", help="mask usernames in the output")
+    parser.add_argument("--verify", action="store_true", help="only check integrity, coverage and migration history")
     args = parser.parse_args(argv)
 
-    path = Path(args.database)
+    path = Path(args.database).resolve()
+    if not path.exists():
+        print(f"error: database not found: {path}", file=sys.stderr)
+        return 1
+    if not path.is_file():
+        print(f"error: not a regular file: {path}", file=sys.stderr)
+        return 1
+    try:
+        before = sha256_of(path)
+    except OSError as error:
+        print(f"error: cannot read {path}: {error}", file=sys.stderr)
+        return 1
+
     connection = connect_read_only(path)
     try:
         if not table_exists(connection, "Users"):
             print("error: the database has no Users table (has it been migrated?)", file=sys.stderr)
             return 1
+        schema = schema_report(connection)
         users = collect(connection)
     finally:
         connection.close()
 
-    report = build_report(users, str(path), args.mask)
+    after = sha256_of(path)
+    fingerprint = {"algorithm": "sha256", "before": before, "after": after, "unchanged": before == after}
+    if not fingerprint["unchanged"]:
+        print("error: the database file changed during a supposedly read-only scan", file=sys.stderr)
+        return 1
+
+    report = build_report(users, str(path), args.mask, schema, fingerprint)
+    if args.verify:
+        return verify_only(report)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
         print_human(report)
-    return 2 if report["conflictCount"] else 0
+    return 2 if report["conflictCount"] or report["paddedUsernames"] else 0
 
 
 if __name__ == "__main__":
