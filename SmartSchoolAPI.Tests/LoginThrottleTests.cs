@@ -1,0 +1,131 @@
+using System.Net;
+using System.Net.Http.Json;
+using SmartSchoolAPI.Authorization;
+using SmartSchoolAPI.Security;
+
+namespace SmartSchoolAPI.Tests;
+
+/// <summary>
+/// P0-A: failed login attempts on a single account are throttled for a short, self-clearing
+/// window. There is intentionally no permanent lock, so an attacker cannot disable an account.
+/// </summary>
+public sealed class LoginThrottleTests
+{
+    private static LoginAttemptThrottle Create(TestTimeProvider time, int failureLimit = 5) =>
+        new(time, new LoginThrottleOptions { FailureLimit = failureLimit, Window = TimeSpan.FromMinutes(1) });
+
+    [Fact]
+    public void BelowThreshold_IsNotBlocked()
+    {
+        var throttle = Create(new TestTimeProvider());
+
+        for (var i = 0; i < 4; i++) throttle.RecordFailure("student-a");
+
+        Assert.False(throttle.IsBlocked("student-a", out var retryAfter));
+        Assert.Equal(0, retryAfter);
+    }
+
+    [Fact]
+    public void AtThreshold_IsBlockedAndReportsRetryAfterWithinTheWindow()
+    {
+        var throttle = Create(new TestTimeProvider());
+
+        for (var i = 0; i < 5; i++) throttle.RecordFailure("student-a");
+
+        Assert.True(throttle.IsBlocked("student-a", out var retryAfter));
+        Assert.InRange(retryAfter, 1, 60);
+    }
+
+    [Fact]
+    public void SuccessfulLogin_ResetsTrackedFailures()
+    {
+        var throttle = Create(new TestTimeProvider());
+        for (var i = 0; i < 5; i++) throttle.RecordFailure("student-a");
+        Assert.True(throttle.IsBlocked("student-a", out _));
+
+        throttle.Reset("student-a");
+
+        Assert.False(throttle.IsBlocked("student-a", out var retryAfter));
+        Assert.Equal(0, retryAfter);
+    }
+
+    [Fact]
+    public void WindowRollover_ClearsTheThrottle_WithoutAnyPermanentLock()
+    {
+        var time = new TestTimeProvider();
+        var throttle = Create(time);
+        for (var i = 0; i < 5; i++) throttle.RecordFailure("student-a");
+        Assert.True(throttle.IsBlocked("student-a", out _));
+
+        time.Advance(TimeSpan.FromMinutes(1));
+
+        Assert.False(throttle.IsBlocked("student-a", out _));
+    }
+
+    [Fact]
+    public void ThrottlingOneAccount_DoesNotAffectAnother()
+    {
+        var throttle = Create(new TestTimeProvider());
+        for (var i = 0; i < 5; i++) throttle.RecordFailure("student-a");
+
+        Assert.True(throttle.IsBlocked("student-a", out _));
+        Assert.False(throttle.IsBlocked("student-b", out _));
+    }
+
+    [Fact]
+    public void Keys_AreTrimmedAndCaseInsensitive()
+    {
+        var throttle = Create(new TestTimeProvider());
+        for (var i = 0; i < 5; i++) throttle.RecordFailure("  Student-A  ");
+
+        Assert.True(throttle.IsBlocked("student-a", out _));
+        Assert.True(throttle.IsBlocked("STUDENT-A", out _));
+    }
+
+    [Fact]
+    public void OverlongIdentifiers_AreBounded()
+    {
+        var throttle = Create(new TestTimeProvider());
+        var first = new string('a', 5000) + "-one";
+        var second = new string('a', 5000) + "-two";
+
+        for (var i = 0; i < 5; i++) throttle.RecordFailure(first);
+
+        // Identifier length is capped, so both inputs share one bounded counter.
+        Assert.True(throttle.IsBlocked(second, out _));
+    }
+
+    [Fact]
+    public async Task DistributedFailures_AreThrottledPerAccount_AndReleaseAfterTheWindow()
+    {
+        using var factory = new IntegrationTestFactory();
+        factory.SeedUser("throttle-user", "Correct123!", RoleNames.Student);
+
+        // Five different clients (different quotas) fail once each on the same account.
+        for (var i = 0; i < 5; i++)
+        {
+            using var attacker = factory.CreateClient();
+            attacker.DefaultRequestHeaders.Add(TestClientIdentityProvider.HeaderName, $"attacker-{i}");
+            using var failure = await attacker.PostAsJsonAsync(
+                "/api/auth/login", new { Username = "throttle-user", Password = "Wrong123!" });
+            Assert.Equal(HttpStatusCode.Unauthorized, failure.StatusCode);
+        }
+
+        using var nextAttacker = factory.CreateClient();
+        nextAttacker.DefaultRequestHeaders.Add(TestClientIdentityProvider.HeaderName, "attacker-final");
+        using var throttled = await nextAttacker.PostAsJsonAsync(
+            "/api/auth/login", new { Username = "throttle-user", Password = "Wrong123!" });
+        Assert.Equal((HttpStatusCode)429, throttled.StatusCode);
+        Assert.True(throttled.Headers.TryGetValues("Retry-After", out var retryAfter));
+        Assert.NotEmpty(retryAfter!);
+
+        // The account is not permanently locked: after the window the owner can log in again.
+        factory.Time.Advance(TimeSpan.FromMinutes(1));
+
+        using var owner = factory.CreateClient();
+        owner.DefaultRequestHeaders.Add(TestClientIdentityProvider.HeaderName, "owner-client");
+        using var success = await owner.PostAsJsonAsync(
+            "/api/auth/login", new { Username = "throttle-user", Password = "Correct123!" });
+        Assert.Equal(HttpStatusCode.OK, success.StatusCode);
+    }
+}

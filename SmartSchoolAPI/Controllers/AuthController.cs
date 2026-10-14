@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -16,19 +17,32 @@ namespace SmartSchoolAPI.Controllers;
 
 [Route("api/[controller]")]
 [ApiController]
-public class AuthController(SchoolDbContext context, IConfiguration configuration) : ControllerBase
+public class AuthController(SchoolDbContext context, IConfiguration configuration, LoginAttemptThrottle loginThrottle) : ControllerBase
 {
     [HttpPost("login")]
     [EnableRateLimiting("login")]
     public async Task<IActionResult> Login(LoginDto request)
     {
+        // Temporary throttle: protects a single account against distributed guessing while
+        // remaining self-clearing (no permanent lock, so an account cannot be denied forever).
+        if (loginThrottle.IsBlocked(request.Username, out var retryAfterSeconds))
+        {
+            Response.Headers["Retry-After"] = retryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+            await WriteAuditAsync(null, "LOGIN_THROTTLED", "User", null);
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { success = false, message = "Too many failed attempts. Please try again later." });
+        }
+
         var user = await context.Users.SingleOrDefaultAsync(u => u.Username == request.Username);
         var valid = user is not null && !string.IsNullOrWhiteSpace(user.PasswordHash) && PasswordService.Verify(request.Password, user.PasswordHash);
         if (!valid)
         {
+            loginThrottle.RecordFailure(request.Username);
             await WriteAuditAsync(user?.UserId, "LOGIN_FAILURE", "User", user?.UserId.ToString());
             return Unauthorized(new { success = false, message = "Invalid username or password." });
         }
+
+        loginThrottle.Reset(request.Username);
 
         var (refreshToken, refreshHash) = RefreshTokenService.Generate();
         context.RefreshTokens.Add(new RefreshToken

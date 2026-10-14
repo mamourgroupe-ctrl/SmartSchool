@@ -18,13 +18,43 @@ jobs:
       - name: Add dotnet tools to PATH
         run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
       - name: Build
-        run: dotnet build SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj
+        run: |
+          set -o pipefail
+          dotnet build SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj 2>&1 | tee build.log
+      # Surfaces compiler errors as annotations + job summary so failures are diagnosable
+      # without downloading the full job log.
+      - name: Report build failures
+        if: failure()
+        run: |
+          if [ ! -f build.log ]; then exit 0; fi
+          {
+            echo "### Build failure"
+            grep -E "error [A-Z]+[0-9]+" build.log | sort -u | head -40
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          while IFS= read -r line; do
+            echo "::error::$line"
+          done < <(grep -E "error [A-Z]+[0-9]+" build.log | sort -u | head -20) || true
+          exit 0
       - name: Migrations match model
         run: dotnet ef migrations has-pending-model-changes --project SmartSchoolAPI/SmartSchoolAPI.csproj --no-build
       - name: Apply migrations
         run: dotnet ef database update --project SmartSchoolAPI/SmartSchoolAPI.csproj --no-build
       - name: Test
-        run: dotnet test SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj --no-build
+        run: |
+          set -o pipefail
+          dotnet test SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj --no-build 2>&1 | tee test.log
+      - name: Report test failures
+        if: failure()
+        run: |
+          if [ ! -f test.log ]; then exit 0; fi
+          {
+            echo "### Test failure"
+            grep -E "Failed |Assert\.|error [A-Z]+[0-9]+" test.log | head -60
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          while IFS= read -r line; do
+            echo "::error::$line"
+          done < <(grep -E "Failed |Assert\.|error [A-Z]+[0-9]+" test.log | head -20) || true
+          exit 0
 
   # Python (FastAPI) backend tests.
   python:

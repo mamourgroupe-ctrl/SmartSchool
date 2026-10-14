@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SmartSchoolAPI.Data;
 using SmartSchoolAPI.Models;
+using SmartSchoolAPI.RateLimiting;
 using SmartSchoolAPI.Security;
 
 namespace SmartSchoolAPI.Tests;
@@ -16,6 +18,9 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
     public const string JwtIssuer = "SmartSchoolAPI";
     public const string JwtAudience = "SmartSchoolClients";
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
+
+    /// <summary>Deterministic clock used by time-based security components in tests.</summary>
+    public TestTimeProvider Time { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -34,6 +39,15 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
             using var provider = services.BuildServiceProvider();
             using var scope = provider.CreateScope();
             scope.ServiceProvider.GetRequiredService<SchoolDbContext>().Database.EnsureCreated();
+        });
+        builder.ConfigureTestServices(services =>
+        {
+            // Replace the remote-address key provider with a header-driven one so tests can
+            // simulate multiple independent clients, and freeze time for window tests.
+            services.RemoveAll<IClientIdentityProvider>();
+            services.AddSingleton<IClientIdentityProvider>(new TestClientIdentityProvider());
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(Time);
         });
     }
 

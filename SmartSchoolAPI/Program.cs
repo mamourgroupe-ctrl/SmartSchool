@@ -4,10 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using SmartSchoolAPI.Data;
 using SmartSchoolAPI.Models;
+using SmartSchoolAPI.RateLimiting;
 using SmartSchoolAPI.Security;
 using SmartSchoolAPI.Services;
 using System.Text;
-using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -74,26 +74,19 @@ builder.Services.AddAuthentication(options =>
 });
 
 builder.Services.AddAuthorization();
-builder.Services.AddRateLimiter(options =>
+
+// P0-A: authentication rate limits are partitioned per client (transport remote address)
+// instead of using one shared system-wide quota. Temporary, self-clearing protection for
+// repeated failures on the same account is provided by LoginAttemptThrottle.
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton(new LoginThrottleOptions
 {
-    options.AddFixedWindowLimiter("login", limiter =>
-    {
-        limiter.PermitLimit = 5;
-        limiter.Window = TimeSpan.FromMinutes(1);
-        limiter.QueueLimit = 0;
-    });
-    options.AddFixedWindowLimiter("refresh", limiter =>
-    {
-        limiter.PermitLimit = 20;
-        limiter.Window = TimeSpan.FromMinutes(1);
-        limiter.QueueLimit = 0;
-    });
-    options.OnRejected = async (context, token) =>
-    {
-        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-        await context.HttpContext.Response.WriteAsJsonAsync(new { success = false, message = "Too many requests." }, token);
-    };
+    FailureLimit = builder.Configuration.GetValue("Security:LoginThrottle:FailureLimit", 5),
+    Window = TimeSpan.FromSeconds(builder.Configuration.GetValue("Security:LoginThrottle:WindowSeconds", 60))
 });
+builder.Services.AddSingleton<LoginAttemptThrottle>();
+builder.Services.AddSingleton<IClientIdentityProvider, RemoteIpClientIdentityProvider>();
+builder.Services.AddSmartSchoolRateLimiting(builder.Configuration);
 
 var app = builder.Build();
 app.UseExceptionHandler(exceptionApp => exceptionApp.Run(async context =>
