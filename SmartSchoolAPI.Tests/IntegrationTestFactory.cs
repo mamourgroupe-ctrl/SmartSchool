@@ -17,7 +17,17 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
     public const string JwtKey = "integration-test-key-012345678901234567890123456789";
     public const string JwtIssuer = "SmartSchoolAPI";
     public const string JwtAudience = "SmartSchoolClients";
-    private readonly SqliteConnection _connection = new("Data Source=:memory:");
+    /// <summary>
+    /// One temporary SQLite file per factory instance.
+    ///
+    /// The host used to share a single open in-memory connection between every DbContext, which
+    /// is not how the application runs (each request gets its own connection to the database
+    /// file) and made concurrent requests fail with lock errors instead of the behaviour under
+    /// test. A private file per factory keeps the tests isolated while giving every context its
+    /// own connection, so concurrency tests exercise the real serialization the provider
+    /// performs.
+    /// </summary>
+    private readonly string _databasePath = Path.Combine(Path.GetTempPath(), $"smartschool-test-{Guid.NewGuid():N}.db");
 
     /// <summary>Deterministic clock used by time-based security components in tests.</summary>
     public TestTimeProvider Time { get; } = new();
@@ -31,11 +41,9 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.ConfigureServices(services =>
         {
-            _connection.Open();
             services.RemoveAll<DbContextOptions<SchoolDbContext>>();
             services.RemoveAll<SchoolDbContext>();
-            services.AddSingleton(_connection);
-            services.AddDbContext<SchoolDbContext>(options => options.UseSqlite(_connection));
+            services.AddDbContext<SchoolDbContext>(options => options.UseSqlite($"Data Source={_databasePath}"));
             using var provider = services.BuildServiceProvider();
             using var scope = provider.CreateScope();
             scope.ServiceProvider.GetRequiredService<SchoolDbContext>().Database.EnsureCreated();
@@ -189,7 +197,19 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) _connection.Dispose();
+        // Dispose the host first (it owns the DbContexts), then release the pooled connections
+        // that would otherwise keep the temporary file locked, then delete it.
         base.Dispose(disposing);
+        if (!disposing) return;
+
+        SqliteConnection.ClearAllPools();
+        try
+        {
+            if (File.Exists(_databasePath)) File.Delete(_databasePath);
+        }
+        catch (IOException)
+        {
+            // A leaked temp file must never turn a passing test into a failing one.
+        }
     }
 }

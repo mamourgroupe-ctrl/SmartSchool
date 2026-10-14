@@ -221,11 +221,11 @@ public sealed class UsernameUniquenessTests
             CreateStudent(firstClient, "race-user"),
             CreateStudent(secondClient, "race-user"));
 
-        // The application-level guard cannot be atomic without the database constraint, and the
-        // test host shares a single in-memory SQLite connection (writes may serialize), so the
+        // The application-level guard cannot be atomic without the database constraint, so the
         // assertions are: every answer is a valid outcome, nothing crashes with 500, and exactly
-        // one row exists per successful create. The unique index in the migration plan is what
-        // makes this airtight under real concurrency.
+        // one row exists per successful create. If both requests pass the check before either
+        // commits, two accounts are created - that is the gap the unique index in the migration
+        // plan closes, and this test documents it instead of hiding it.
         Assert.DoesNotContain(responses, response => response.StatusCode == HttpStatusCode.InternalServerError);
         Assert.All(responses, response => Assert.Contains(response.StatusCode, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict }));
 
