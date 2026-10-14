@@ -67,7 +67,8 @@ python SmartSchoolAPI/Tools/find_duplicate_usernames.py "/secure/copy-school_sys
 بصمة قبل/بعد | `SHA-256` يُحسب قبل الفحص وبعده، وأي اختلاف ⇒ **فشل صريح** وخروج 1 |
 لا معاملات ولا كتابة | لا `BEGIN`، ولا `INSERT/UPDATE/DELETE`، ولا DDL في الأداة إطلاقاً |
 لا أسرار | لا يُقرأ عمود `PasswordHash` أصلاً (الاستعلام يحدد `UserId, Username, Role`) |
-وضع `--verify` جديد | `integrity_check` · `foreign_key_check` · جرد الجداول وعدد صفوفها · عمود/جداول الاسم · الفهارس الفريدة على `Users` · سجل الترحيلات · `journal_mode` · `encoding` · `collation_list` |
+| وضع `--verify` جديد | `integrity_check` · `foreign_key_check` · جرد الجداول وعدد صفوفها · عمود/جداول الاسم · الفهارس الفريدة على `Users` · سجل الترحيلات · `journal_mode` · `encoding` · `collation_list` |
+| **إثبات عدم النشاط** | كشف الملفات المرافقة (`-wal`/`-shm`/`-journal`) ⇒ **رفض** عند وجودها · إثبات `quiescent` بتطابق البصمة + الحجم + وقت التعديل خلال الفحص · (لازمة لا كافية: الضمان النهائي من آلية النسخ نفسها) |
 
 ---
 

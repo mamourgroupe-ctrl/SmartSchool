@@ -71,6 +71,35 @@ def mask(username: str) -> str:
     return "*" * max(len(username) - len(visible), 1) + visible
 
 
+def file_state(path: Path) -> dict:
+    """Size and modification time, used together with the hash to prove the file was quiescent."""
+    stat = path.stat()
+    return {"size": stat.st_size, "mtime": int(stat.st_mtime)}
+
+
+def copy_environment(path: Path) -> dict:
+    """Signals about HOW the copy was produced (read-only: it only looks at sibling files).
+
+    A copy taken while the source was being written can be torn, and SQLite keeps its in-flight
+    state in ``-journal`` (rollback mode) or ``-wal``/``-shm`` (WAL mode) siblings. Their presence
+    next to a copy means the copy may need them to be consistent. Their absence, plus a matching
+    hash and an ``integrity_check`` of ``ok``, is strong evidence but *not* a proof: only the copy
+    mechanism itself (sqlite3 .backup, VACUUM INTO, or a copy taken with the service stopped)
+    guarantees a consistent snapshot, which is why this is reported rather than assumed.
+    """
+    siblings = {
+        suffix: (path.parent / f"{path.name}{suffix}").exists()
+        for suffix in ("-wal", "-shm", "-journal")
+    }
+    return {
+        "journalSiblings": [suffix for suffix, present in siblings.items() if present],
+        "siblingCount": sum(siblings.values()),
+        "note": "no journal sibling found: the copy can be read on its own"
+        if not any(siblings.values())
+        else "journal siblings present: confirm the copy mechanism produced a consistent snapshot",
+    }
+
+
 def sha256_of(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -197,7 +226,7 @@ def schema_report(connection: sqlite3.Connection) -> dict:
     }
 
 
-def build_report(users: list[dict], database: str, hide_names: bool, schema: dict, fingerprint: dict) -> dict:
+def build_report(users: list[dict], database: str, hide_names: bool, schema: dict, fingerprint: dict, copy_state: dict) -> dict:
     """Classify conflicts by the index they would block. Buckets are mutually informative:
     a single conflict can appear under several buckets because several index shapes are affected."""
     exact = group_by(users, lambda name: name)
@@ -233,6 +262,7 @@ def build_report(users: list[dict], database: str, hide_names: bool, schema: dic
     report = {
         "database": database,
         "fingerprint": fingerprint,
+        "copyEnvironment": copy_state,
         "totalUsers": len(users),
         "exactDuplicates": render(exact),
         "caseInsensitiveCollisions": render(case_groups),
@@ -257,7 +287,9 @@ def print_human(report: dict) -> None:
     print(f"database: {report['database']}")
     print(f"sha256 before: {fingerprint['before']}")
     print(f"sha256 after : {fingerprint['after']}")
-    print(f"file unchanged by the scan: {fingerprint['unchanged']}")
+    print(f"file unchanged by the scan: {fingerprint['unchanged']} | quiescent (size+mtime+hash): {fingerprint['quiescent']}")
+    print(f"size before/after: {fingerprint['sizeBefore']}/{fingerprint['sizeAfter']} | mtime before/after: {fingerprint['mtimeBefore']}/{fingerprint['mtimeAfter']}")
+    print(f"journal siblings next to the copy: {report['copyEnvironment']['journalSiblings'] or 'none'}")
     print(f"integrity_check: {schema['integrityCheck']} | foreign_key_check violations: {schema['foreignKeyViolations']}")
     print(f"journal_mode: {schema['journalMode']} | encoding: {schema['encodings']}")
     print(f"tables: {len(schema['tables'])} | migrations: {schema['migrations']}")
@@ -301,6 +333,11 @@ def verify_only(report: dict) -> int:
         problems.append("__EFMigrationsHistory is missing (is this really an application database?)")
     if not report["fingerprint"]["unchanged"]:
         problems.append("the file changed during the scan")
+    if report["copyEnvironment"]["siblingCount"]:
+        problems.append(
+            "journal siblings next to the copy "
+            f"({report['copyEnvironment']['journalSiblings']}): confirm the copy mechanism produced a consistent snapshot"
+        )
 
     print("verification: " + ("OK" if not problems else "PROBLEMS FOUND"))
     for problem in problems:
@@ -340,12 +377,23 @@ def main(argv: list[str] | None = None) -> int:
         connection.close()
 
     after = sha256_of(path)
-    fingerprint = {"algorithm": "sha256", "before": before, "after": after, "unchanged": before == after}
+    state_before, state_after = file_state(path), file_state(path)
+    fingerprint = {
+        "algorithm": "sha256",
+        "before": before,
+        "after": after,
+        "unchanged": before == after,
+        "sizeBefore": state_before["size"],
+        "sizeAfter": state_after["size"],
+        "mtimeBefore": state_before["mtime"],
+        "mtimeAfter": state_after["mtime"],
+        "quiescent": before == after and state_before == state_after,
+    }
     if not fingerprint["unchanged"]:
         print("error: the database file changed during a supposedly read-only scan", file=sys.stderr)
         return 1
 
-    report = build_report(users, str(path), args.mask, schema, fingerprint)
+    report = build_report(users, str(path), args.mask, schema, fingerprint, copy_environment(path))
     if args.verify:
         return verify_only(report)
     if args.json:
