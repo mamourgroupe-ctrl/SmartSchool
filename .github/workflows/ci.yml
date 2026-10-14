@@ -55,6 +55,15 @@ jobs:
             echo "::error::$line"
           done < <(grep -E "Failed |Assert\.|error [A-Z]+[0-9]+" test.log | head -20) || true
           exit 0
+      # Publishes the test totals as an annotation so the executed test count is auditable
+      # from the checks API (the full job log requires blob storage access).
+      - name: Report test summary
+        if: always()
+        run: |
+          if [ ! -f test.log ]; then exit 0; fi
+          summary=$(grep -E "(Passed!|Failed!|Passed:|Failed:)" test.log | tail -3 | tr '\n' ' ' | tr -s ' ')
+          if [ -n "$summary" ]; then echo "::notice::$summary"; fi
+          exit 0
 
   # Python (FastAPI) backend tests.
   python:
