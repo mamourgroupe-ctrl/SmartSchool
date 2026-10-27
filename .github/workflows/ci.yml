@@ -21,6 +21,12 @@ jobs:
         run: dotnet build SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release
       - name: Build API tests
         run: dotnet build SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj --configuration Release
+      # Temporary: export an EF-generated migration for review on this branch.
+      - name: Generate school-ownership migration
+        run: |
+          dotnet ef migrations add AddExplicitSchoolOwnership --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
+          tar -czf "$RUNNER_TEMP/school-ownership-migration.tgz" SmartSchoolAPI/Migrations/*_AddExplicitSchoolOwnership.* SmartSchoolAPI/Migrations/SchoolDbContextModelSnapshot.cs
+          echo "::notice title=EF migration bundle::$(base64 -w0 "$RUNNER_TEMP/school-ownership-migration.tgz")"
       - name: Migrations match model
         run: dotnet ef migrations has-pending-model-changes --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
       - name: Apply migrations

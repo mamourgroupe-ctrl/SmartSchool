@@ -100,6 +100,8 @@ public sealed class Enrollment
 public sealed class AttendanceRecord
 {
     public long AttendanceRecordId { get; set; }
+    public int? OrganizationId { get; set; }
+    public Organization? Organization { get; set; }
     public int StudentId { get; set; }
     public Student Student { get; set; } = null!;
     public DateOnly Date { get; set; }
@@ -112,6 +114,8 @@ public sealed class AttendanceRecord
 public sealed class BehaviorRecord
 {
     public long BehaviorRecordId { get; set; }
+    public int? OrganizationId { get; set; }
+    public Organization? Organization { get; set; }
     public int StudentId { get; set; }
     public Student Student { get; set; } = null!;
     public string Type { get; set; } = string.Empty;
