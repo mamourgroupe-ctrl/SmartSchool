@@ -47,7 +47,11 @@ public sealed class SchoolMigrationRecoveryTests
         Assert.Equal(original, await CaptureLegacyRowsAsync(source));
         Assert.Equal(1, await ScalarAsync(source, $"SELECT COUNT(*) FROM __EFMigrationsHistory WHERE MigrationId = '{OwnershipMigration}'"));
         foreach (var table in new[] { "Students", "Teachers", "AttendanceRecords", "BehaviorRecords", "QuranRecords" })
+        {
             Assert.Equal(0, await ScalarAsync(source, $"SELECT COUNT(*) FROM \"{table}\" WHERE OrganizationId IS NOT NULL"));
+            Assert.Equal(1, await ScalarAsync(source,
+                $"SELECT COUNT(*) FROM pragma_foreign_key_list('{table}') WHERE \"table\" = 'Organizations' AND \"from\" = 'OrganizationId' AND \"to\" = 'OrganizationId'"));
+        }
         await AssertLegacySchoolAccessIsQuarantinedAsync(db);
 
         // Restore into a different empty file, never over the source.
