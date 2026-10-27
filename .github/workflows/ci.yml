@@ -34,6 +34,7 @@ jobs:
           for index, chunk in enumerate(chunks):
               print(f'::notice title=EF migration bundle {index+1:02} of {len(chunks):02}::{chunk}')
           PY
+          dotnet build SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release
       - name: Migrations match model
         run: dotnet ef migrations has-pending-model-changes --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
       - name: Apply migrations
