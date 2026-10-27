@@ -62,6 +62,27 @@ public sealed class SchoolMigrationRecoveryTests
     }
 
     [Fact]
+    public async Task DowngradeWithoutNewConflicts_PreservesLegacyData()
+    {
+        using var scratch = new ScratchDirectory();
+        await using var source = await OpenAsync(scratch.File("legacy.db"));
+        await EnableWalAsync(source);
+        await using var db = CreateContext(source);
+        var migrator = db.GetService<IMigrator>();
+        await migrator.MigrateAsync(LegacyMigration);
+        await SeedLegacyAsync(db);
+        var original = await CaptureLegacyRowsAsync(source);
+
+        await migrator.MigrateAsync();
+        await migrator.MigrateAsync(LegacyMigration);
+
+        await AssertHealthyAsync(source);
+        Assert.Equal(original, await CaptureLegacyRowsAsync(source));
+        Assert.Equal(0, await ScalarAsync(source, $"SELECT COUNT(*) FROM __EFMigrationsHistory WHERE MigrationId = '{OwnershipMigration}'"));
+        Assert.Equal(0, await ScalarAsync(source, "SELECT COUNT(*) FROM pragma_table_info('Students') WHERE name = 'OrganizationId'"));
+    }
+
+    [Fact]
     public async Task DowngradeWithDuplicateAttendance_FailsAndOriginalBackupCanBeRestored()
     {
         using var scratch = new ScratchDirectory();
@@ -76,9 +97,11 @@ public sealed class SchoolMigrationRecoveryTests
         await BackupAsync(source, backupPath);
         await migrator.MigrateAsync();
 
-        // The new index permits one unscoped legacy row and one scoped row on
-        // the same date. The old unique index cannot represent both rows.
+        // Simulate a separately reviewed assignment and a later scoped write
+        // directly in SQL. No reconciliation workflow is implemented here.
+        // The old unique index cannot represent both rows on the same date.
         await db.Database.ExecuteSqlRawAsync("""
+            UPDATE Students SET OrganizationId = 1 WHERE StudentId = 1;
             INSERT INTO AttendanceRecords (StudentId, OrganizationId, Date, Status, Notes, RecordedByUserId, CreatedAtUtc)
             VALUES (1, 1, '2026-09-01', 'PRESENT', 'new scoped example', 4, '2026-09-01 00:00:00');
             """);
@@ -210,6 +233,7 @@ public sealed class SchoolMigrationRecoveryTests
         // fields, so old values and relationships can be compared after upgrade.
         var queries = new[]
         {
+            $"SELECT MigrationId, ProductVersion FROM __EFMigrationsHistory WHERE MigrationId <> '{OwnershipMigration}' ORDER BY MigrationId",
             "SELECT UserId, Username, PasswordHash, Role FROM Users ORDER BY UserId",
             "SELECT AuditLogId, UserId, Action, EntityName, EntityId, TimestampUtc FROM AuditLogs ORDER BY AuditLogId",
             "SELECT RefreshTokenId, UserId, TokenHash, ExpiresAtUtc, CreatedAtUtc, RevokedAtUtc FROM RefreshTokens ORDER BY RefreshTokenId",
