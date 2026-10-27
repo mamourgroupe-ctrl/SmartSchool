@@ -16,15 +16,23 @@ jobs:
       - name: Install dotnet-ef
         run: dotnet tool install --global dotnet-ef --version 10.*
       - name: Add dotnet tools to PATH
-        run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
-      - name: Build
-        run: dotnet build SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj
+        run: echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+      - name: Build API
+        run: dotnet build SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release
+      - name: Build API tests
+        run: dotnet build SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj --configuration Release
       - name: Migrations match model
-        run: dotnet ef migrations has-pending-model-changes --project SmartSchoolAPI/SmartSchoolAPI.csproj --no-build
+        run: dotnet ef migrations has-pending-model-changes --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
       - name: Apply migrations
-        run: dotnet ef database update --project SmartSchoolAPI/SmartSchoolAPI.csproj --no-build
-      - name: Test
-        run: dotnet test SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj --no-build
+        run: dotnet ef database update --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
+      - name: Run API tests
+        run: >-
+          dotnet test SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj
+          --configuration Release --no-build
+          --logger "trx;LogFileName=api-tests.trx"
+          --results-directory "$RUNNER_TEMP/api-test-results"
+      - name: Require executed and passing API tests
+        run: python3 scripts/assert_dotnet_test_results.py "$RUNNER_TEMP/api-test-results/api-tests.trx"
 
   # Python (FastAPI) backend tests.
   python:
@@ -39,13 +47,15 @@ jobs:
           # requirements.txt pins numpy==2.5.2 which requires Python >= 3.12.
           python-version: "3.12"
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
+        run: pip install -r requirements-dev.txt
       - name: Test
         run: pytest
 
-  # Expo (React Native) type check.
+  # Expo (React Native) type check, lint, and web export.
   expo:
     runs-on: ubuntu-latest
+    env:
+      EXPO_OFFLINE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,3 +65,11 @@ jobs:
         run: npm ci
       - name: Type-check
         run: npx tsc --noEmit
+      - name: Lint
+        run: npm run lint
+      - name: Export web
+        run: npx expo export --platform web --output-dir "$RUNNER_TEMP/expo-web"
+
+  # MAUI is temporarily excluded: QuranRecordDto is referenced but not defined
+  # in the mobile project. See STAGE_0_TESTING.md for the limitation and a
+  # workload-enabled build command. This phase does not change mobile code.

@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SmartSchoolAPI.Authorization;
 using SmartSchoolAPI.Data;
 using SmartSchoolAPI.Models;
 using SmartSchoolAPI.Security;
@@ -15,6 +16,7 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
     public const string JwtKey = "integration-test-key-012345678901234567890123456789";
     public const string JwtIssuer = "SmartSchoolAPI";
     public const string JwtAudience = "SmartSchoolClients";
+    public const string DefaultPassword = "Correct123!";
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -70,7 +72,7 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
         return scope.ServiceProvider.GetRequiredService<SchoolDbContext>().AuditLogs.AsNoTracking().ToList();
     }
 
-    public int SeedUser(string username, string role) => SeedUser(username, "Correct123!", role);
+    public int SeedUser(string username, string role) => SeedUser(username, DefaultPassword, role);
 
     public void AddMembership(int organizationId, int userId)
     {
@@ -84,7 +86,7 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
     {
         using var scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SchoolDbContext>();
-        var user = new User { Username = username, PasswordHash = PasswordService.Hash("Correct123!"), Role = SmartSchoolAPI.Authorization.RoleNames.Parent };
+        var user = new User { Username = username, PasswordHash = PasswordService.Hash(DefaultPassword), Role = RoleNames.Parent };
         db.Users.Add(user);
         db.SaveChanges();
         var parent = new Parent { UserId = user.UserId, FirstName = "Parent", LastName = username };
@@ -107,7 +109,7 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
         var db = scope.ServiceProvider.GetRequiredService<SchoolDbContext>();
         var organization = new Organization { Name = $"{prefix}-organization" };
         db.Organizations.Add(organization);
-        var studentUser = new User { Username = $"{prefix}-student", PasswordHash = PasswordService.Hash("Correct123!"), Role = SmartSchoolAPI.Authorization.RoleNames.Student };
+        var studentUser = new User { Username = $"{prefix}-student", PasswordHash = PasswordService.Hash(DefaultPassword), Role = RoleNames.Student };
         db.Users.Add(studentUser);
         db.SaveChanges();
         var student = new Student { UserId = studentUser.UserId, FirstName = "Student", LastName = prefix };
@@ -124,7 +126,7 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
         int? teacherId = null;
         if (withTeacher)
         {
-            var teacherUser = new User { Username = $"{prefix}-teacher", PasswordHash = PasswordService.Hash("Correct123!"), Role = SmartSchoolAPI.Authorization.RoleNames.Teacher };
+            var teacherUser = new User { Username = $"{prefix}-teacher", PasswordHash = PasswordService.Hash(DefaultPassword), Role = RoleNames.Teacher };
             db.Users.Add(teacherUser);
             db.SaveChanges();
             var teacher = new Teacher { UserId = teacherUser.UserId, FirstName = "Teacher", LastName = prefix, SubjectSpecialty = "General" };
@@ -148,6 +150,44 @@ public sealed class IntegrationTestFactory : WebApplicationFactory<Program>
     }
 
     public sealed record SchoolSeed(int OrganizationId, int StudentId, int? TeacherUserId, int? TeacherId);
+
+    // Keep the schools and their users in this factory's private in-memory database.
+    public TwoSchoolActors SeedTwoSchools(string prefix) =>
+        new(SeedSchoolActors($"{prefix}-first"), SeedSchoolActors($"{prefix}-second"));
+
+    private SchoolActors SeedSchoolActors(string prefix)
+    {
+        var school = SeedStructuredSchool(prefix);
+        var adminUsername = $"{prefix}-admin";
+        var adminUserId = SeedUser(adminUsername, RoleNames.SchoolAdmin);
+        AddMembership(school.OrganizationId, adminUserId);
+        var parentUsername = $"{prefix}-parent";
+        var parentUserId = SeedParentWithLink(parentUsername, school.StudentId);
+
+        return new SchoolActors(
+            school,
+            adminUserId,
+            school.TeacherUserId ?? throw new InvalidOperationException("A teacher was not seeded."),
+            parentUserId,
+            StudentUserIdFor(school.StudentId),
+            adminUsername,
+            $"{prefix}-teacher",
+            parentUsername,
+            $"{prefix}-student");
+    }
+
+    public sealed record SchoolActors(
+        SchoolSeed School,
+        int AdminUserId,
+        int TeacherUserId,
+        int ParentUserId,
+        int StudentUserId,
+        string AdminUsername,
+        string TeacherUsername,
+        string ParentUsername,
+        string StudentUsername);
+
+    public sealed record TwoSchoolActors(SchoolActors First, SchoolActors Second);
 
     protected override void Dispose(bool disposing)
     {

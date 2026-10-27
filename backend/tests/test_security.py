@@ -1,6 +1,33 @@
 """Tests for the security helpers (password hashing + JWT issuing)."""
 
+import pytest
+from fastapi import HTTPException
+
 from app.core import security
+
+
+JWT_VERIFICATION = {
+    "secret": "test-secret-key-0123456789012345678901",
+    "issuer": "SmartSchoolBackend",
+    "audience": "SmartSchoolClients",
+}
+INVALID_VERIFICATION = (
+    pytest.param({"secret": "wrong-secret-key-012345678901234567890"}, id="wrong-secret"),
+    pytest.param({"issuer": "WrongIssuer"}, id="wrong-issuer"),
+    pytest.param({"audience": "WrongAudience"}, id="wrong-audience"),
+)
+
+
+def _issue_token(expires_minutes: int = 5) -> str:
+    return security.create_access_token(
+        "admin", "Admin", **JWT_VERIFICATION, expires_minutes=expires_minutes
+    )
+
+
+def _assert_rejected(token: str, verification: dict[str, str]) -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        security.decode_access_token(token, **verification)
+    assert exc_info.value.status_code == 401
 
 
 def test_hash_and_verify_password_roundtrip():
@@ -24,63 +51,45 @@ def test_verify_rejects_malformed_hash():
     assert not security.verify_password("x", "")
 
 
-def test_jwt_roundtrip_and_expiry():
-    secret = "test-secret-key-0123456789012345678901"
-    token = security.create_access_token(
-        "admin",
-        "Admin",
-        secret=secret,
-        issuer="SmartSchoolBackend",
-        audience="SmartSchoolClients",
-        expires_minutes=5,
-    )
-    payload = security.decode_access_token(
-        token,
-        secret=secret,
-        issuer="SmartSchoolBackend",
-        audience="SmartSchoolClients",
-    )
+def test_jwt_roundtrip():
+    payload = security.decode_access_token(_issue_token(), **JWT_VERIFICATION)
     assert payload["sub"] == "admin"
     assert payload["role"] == "Admin"
 
 
-def test_jwt_rejects_wrong_secret_issuer_audience_and_garbage():
-    secret = "test-secret-key-0123456789012345678901"
-    token = security.create_access_token(
-        "admin",
-        "Admin",
-        secret=secret,
-        issuer="SmartSchoolBackend",
-        audience="SmartSchoolClients",
-        expires_minutes=5,
-    )
-    for kwargs in (
-        {"secret": "wrong-secret-key-012345678901234567890"},
-        {"issuer": "WrongIssuer"},
-        {"audience": "WrongAudience"},
-    ):
-        try:
-            security.decode_access_token(
-                token,
-                secret=secret,
-                issuer="SmartSchoolBackend",
-                audience="SmartSchoolClients",
-                **kwargs,
-            )
-        except Exception:
-            pass
-        else:
-            raise AssertionError(f"token should have been rejected for {kwargs}")
+@pytest.mark.parametrize("override", INVALID_VERIFICATION)
+def test_jwt_rejects_wrong_verification_parameters(override):
+    # Merge first so the verifier is actually called, without duplicate kwargs.
+    _assert_rejected(_issue_token(), {**JWT_VERIFICATION, **override})
 
-    for bad_token in ("", "not-a-jwt", "a.b", "a.b.c.d"):
-        try:
-            security.decode_access_token(
-                bad_token,
-                secret=secret,
-                issuer="SmartSchoolBackend",
-                audience="SmartSchoolClients",
-            )
-        except Exception:
-            pass
-        else:
-            raise AssertionError(f"token should have been rejected: {bad_token!r}")
+
+@pytest.mark.parametrize("token", ["", "not-a-jwt", "a.b", "a.b.c", "a.b.c.d"])
+def test_jwt_rejects_malformed_tokens(token):
+    _assert_rejected(token, JWT_VERIFICATION)
+
+
+def test_jwt_rejects_expired_token():
+    _assert_rejected(_issue_token(expires_minutes=-1), JWT_VERIFICATION)
+
+
+def test_jwt_rejects_tampered_signature():
+    header, payload, signature = _issue_token().split(".")
+    replacement = "A" if signature[0] != "A" else "B"
+    _assert_rejected(f"{header}.{payload}.{replacement}{signature[1:]}", JWT_VERIFICATION)
+
+
+@pytest.mark.parametrize("override", INVALID_VERIFICATION)
+def test_invalid_jwt_check_fails_if_decoder_accepts_token(monkeypatch, override):
+    """Exercise the rejection test itself against an intentionally broken verifier."""
+    calls = []
+
+    def accept_any_token(token, **verification):
+        calls.append((token, verification))
+        return {"sub": "incorrectly accepted"}
+
+    monkeypatch.setattr(security, "decode_access_token", accept_any_token)
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_jwt_rejects_wrong_verification_parameters(override)
+
+    assert len(calls) == 1
+    assert calls[0][1] == {**JWT_VERIFICATION, **override}
