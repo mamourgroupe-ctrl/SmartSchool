@@ -46,6 +46,7 @@ public sealed class SchoolMigrationRecoveryTests
         await AssertHealthyAsync(source);
         Assert.Equal(original, await CaptureLegacyRowsAsync(source));
         Assert.Equal(1, await ScalarAsync(source, $"SELECT COUNT(*) FROM __EFMigrationsHistory WHERE MigrationId = '{OwnershipMigration}'"));
+        Assert.Equal(1, await ScalarAsync(source, "SELECT COUNT(*) FROM pragma_index_list('AttendanceRecords') WHERE name = 'IX_AttendanceRecords_OrganizationId_StudentId_Date' AND \"unique\" = 1"));
         foreach (var table in new[] { "Students", "Teachers", "AttendanceRecords", "BehaviorRecords", "QuranRecords" })
         {
             Assert.Equal(0, await ScalarAsync(source, $"SELECT COUNT(*) FROM \"{table}\" WHERE OrganizationId IS NOT NULL"));
@@ -84,6 +85,7 @@ public sealed class SchoolMigrationRecoveryTests
         Assert.Equal(original, await CaptureLegacyRowsAsync(source));
         Assert.Equal(0, await ScalarAsync(source, $"SELECT COUNT(*) FROM __EFMigrationsHistory WHERE MigrationId = '{OwnershipMigration}'"));
         Assert.Equal(0, await ScalarAsync(source, "SELECT COUNT(*) FROM pragma_table_info('Students') WHERE name = 'OrganizationId'"));
+        Assert.Equal(1, await ScalarAsync(source, "SELECT COUNT(*) FROM pragma_index_list('AttendanceRecords') WHERE name = 'IX_AttendanceRecords_StudentId_Date' AND \"unique\" = 1"));
     }
 
     [Fact]
@@ -133,7 +135,8 @@ public sealed class SchoolMigrationRecoveryTests
         var scope = new SchoolScope(db, new HttpContextAccessor { HttpContext = http });
         foreach (var (userId, role) in new[]
         {
-            (7, RoleNames.SchoolAdmin), (4, RoleNames.Teacher), (6, RoleNames.Parent)
+            (7, RoleNames.SchoolAdmin), (8, RoleNames.SchoolAdmin),
+            (4, RoleNames.Teacher), (5, RoleNames.Teacher), (6, RoleNames.Parent)
         })
         {
             http.User = Principal(userId, role);
