@@ -25,6 +25,39 @@ jobs:
         run: dotnet ef migrations has-pending-model-changes --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
       - name: Apply migrations
         run: dotnet ef database update --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
+      - name: Exercise ownership preflight against populated EF schemas
+        run: |
+          snapshot="$RUNNER_TEMP/school-preflight-ef.db"
+          dotnet ef database update 20261009120000_AddRefreshTokens --connection "Data Source=$snapshot" --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
+          python3 - "$snapshot" <<'PY'
+          import sqlite3, sys
+          from pathlib import Path
+          with sqlite3.connect(sys.argv[1]) as db:
+              db.execute('PRAGMA foreign_keys=ON')
+              db.executescript(Path('backend/tests/fixtures/preflight_legacy_ef.sql').read_text(encoding='utf-8'))
+              assert not db.execute('PRAGMA foreign_key_check').fetchall()
+          PY
+          before=$(sha256sum "$snapshot" | cut -d' ' -f1)
+          python3 scripts/school_ownership_preflight.py "$snapshot" > "$RUNNER_TEMP/preflight-legacy.json"
+          test "$before" = "$(sha256sum "$snapshot" | cut -d' ' -f1)"
+          dotnet ef database update --connection "Data Source=$snapshot" --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
+          before=$(sha256sum "$snapshot" | cut -d' ' -f1)
+          python3 scripts/school_ownership_preflight.py "$snapshot" > "$RUNNER_TEMP/preflight-owned.json"
+          test "$before" = "$(sha256sum "$snapshot" | cut -d' ' -f1)"
+          python3 - "$RUNNER_TEMP/preflight-legacy.json" "$RUNNER_TEMP/preflight-owned.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding='utf-8') as f: legacy = json.load(f)
+          with open(sys.argv[2], encoding='utf-8') as f: owned = json.load(f)
+          assert legacy['schema'] == 'legacy' and owned['schema'] == 'owned'
+          assert legacy['totals'] == owned['totals']
+          assert legacy['totals']['students'] == 3 and legacy['totals']['enrollments'] == 3
+          assert legacy['ownership']['projected_unassigned_after_upgrade'] == owned['ownership']['current_unassigned']
+          assert legacy['review'] == owned['review']
+          assert legacy['review']['students_with_multiple_enrollment_schools'] == 1
+          assert legacy['review']['authorized_guardian_links_missing_membership_for_an_enrollment_school'] == 1
+          assert legacy['integrity'] == owned['integrity'] == {'quick_check_ok': True, 'foreign_key_violation_count': 0}
+          print('Verified read-only aggregate preflight before and after EF migration on synthetic data.')
+          PY
       - name: Run API tests
         run: >-
           dotnet test SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj
