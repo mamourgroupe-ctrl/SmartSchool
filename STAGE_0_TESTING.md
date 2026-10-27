@@ -83,6 +83,23 @@ No `dotnet` executable was available in the inspection environment. The official
 installer was obtained from the dotnet/install-scripts GitHub repository, but
 its attempt to download SDK 10.0.100 from `builds.dotnet.microsoft.com` failed;
 `api.nuget.org` was also unreachable. Thus the .NET build and tests require the
-GitHub Actions runner or another machine with SDK and NuGet access. A historical
-CI success on the base commit does not establish the result of the changed
-workflow.
+GitHub Actions runner or another machine with SDK and NuGet access.
+
+## Verification performed on 2026-10-27
+
+- [CI run 40532833876](https://github.com/mamourgroupe-ctrl/SmartSchool/actions/runs/40532833876)
+  tested commit `f687138`: the API and test project built, the migration checks
+  and database update passed, and `dotnet test` executed **51 tests: 51 passed**.
+  The TRX gate confirmed that both required safety-net tests passed by name.
+  Python and all three Expo checks also succeeded in this run.
+- Local `python -m pytest -q` under Python 3.11 with the dependencies needed by
+  the tests installed: **34 passed**, with two dependency deprecation warnings.
+  This was not a full reproduction of the pinned Python 3.12 CI environment.
+- In a separate local mutation check, replacing `decode_access_token` with a
+  function that accepts all tokens caused all three wrong-secret/issuer/audience
+  rejection cases to fail, as intended. The mutation was not saved to the app.
+- Local `npm ci --no-audit --no-fund`, `npx tsc --noEmit`, `npm run lint`, and
+  `CI=1 EXPO_OFFLINE=1 npx expo export --platform web --output-dir
+  /tmp/smartschool-stage0-expo-web` succeeded.
+- The official SDK installer download failed twice before the 20-second
+  time limit ended it (exit code 124). No local .NET or MAUI build was run.
