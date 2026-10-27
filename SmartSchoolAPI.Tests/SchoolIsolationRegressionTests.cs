@@ -35,6 +35,27 @@ public sealed class SchoolIsolationRegressionTests
     }
 
     [Fact]
+    public async Task SchoolAdmin_CannotEnrollOwnStudentInForeignSection()
+    {
+        using var factory = new IntegrationTestFactory();
+        var schools = factory.SeedTwoSchools("cross-section");
+        var own = StructureFor(factory, schools.First.School.OrganizationId);
+        var foreign = StructureFor(factory, schools.Second.School.OrganizationId);
+        using var admin = Client(factory, schools.First.AdminUserId, RoleNames.SchoolAdmin);
+
+        using var response = await admin.PostAsJsonAsync("/api/enrollments", new
+        {
+            studentId = schools.First.School.StudentId,
+            academicYearId = own.AcademicYearId,
+            termId = own.TermId,
+            sectionId = foreign.SectionId,
+            startDate = "2026-09-01"
+        });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task SchoolAdmin_CannotClaimAnotherSchoolsNewUnenrolledStudent()
     {
         using var factory = new IntegrationTestFactory();
@@ -241,6 +262,32 @@ public sealed class SchoolIsolationRegressionTests
         Assert.Contains("unverified-attendance", rootOverview);
         Assert.Contains("unverified-behavior", rootOverview);
         Assert.Contains("unverified-quran", rootOverview);
+    }
+
+    [Fact]
+    public async Task RecordsWithMismatchedSchoolAndStudent_AreHiddenFromBothSchools()
+    {
+        using var factory = new IntegrationTestFactory();
+        var schools = factory.SeedTwoSchools("record-school-mismatch");
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SchoolDbContext>();
+            db.AttendanceRecords.Add(new AttendanceRecord
+            {
+                OrganizationId = schools.First.School.OrganizationId, StudentId = schools.Second.School.StudentId,
+                Date = new DateOnly(2026, 10, 13), Status = "ABSENT", Notes = "mismatched-record",
+                RecordedByUserId = schools.First.TeacherUserId
+            });
+            await db.SaveChangesAsync();
+        }
+        using var firstAdmin = Client(factory, schools.First.AdminUserId, RoleNames.SchoolAdmin);
+        using var secondAdmin = Client(factory, schools.Second.AdminUserId, RoleNames.SchoolAdmin);
+
+        using var foreign = await firstAdmin.GetAsync($"/api/students/{schools.Second.School.StudentId}/360");
+        var own = await secondAdmin.GetStringAsync($"/api/students/{schools.Second.School.StudentId}/360");
+
+        Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
+        Assert.DoesNotContain("mismatched-record", own);
     }
 
     [Fact]
