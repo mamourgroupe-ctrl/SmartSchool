@@ -39,11 +39,11 @@ jobs:
             python3 - "$results" <<'PY'
           import sys
           import xml.etree.ElementTree as ET
-          for result in ET.parse(sys.argv[1]).getroot().findall('.//{*}UnitTestResult'):
-              if result.get('outcome') == 'Failed':
-                  message = result.findtext('.//{*}Message') or ''
-                  message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                  print(f"::error title=Failing API test::{result.get('testName')}: {message}")
+          failed = [r for r in ET.parse(sys.argv[1]).getroot().findall('.//{*}UnitTestResult') if r.get('outcome') == 'Failed']
+          if failed:
+              lines = [f"{r.get('testName')}: {r.findtext('.//{*}Message') or ''}" for r in failed]
+              message = ('%s failed tests\n' % len(failed) + '\n'.join(lines)).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f"::error title=Failing API tests::{message}")
           PY
           fi
       - name: Require executed and passing API tests
