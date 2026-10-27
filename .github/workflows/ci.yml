@@ -31,6 +31,21 @@ jobs:
           --configuration Release --no-build
           --logger "trx;LogFileName=api-tests.trx"
           --results-directory "$RUNNER_TEMP/api-test-results"
+      - name: Report failing API tests
+        if: failure()
+        run: |
+          results="$RUNNER_TEMP/api-test-results/api-tests.trx"
+          if [ -f "$results" ]; then
+            python3 - "$results" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          for result in ET.parse(sys.argv[1]).getroot().findall('.//{*}UnitTestResult'):
+              if result.get('outcome') == 'Failed':
+                  message = result.findtext('.//{*}Message') or ''
+                  message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print(f"::error title=Failing API test::{result.get('testName')}: {message}")
+          PY
+          fi
       - name: Require executed and passing API tests
         run: |
           summary=$(python3 scripts/assert_dotnet_test_results.py "$RUNNER_TEMP/api-test-results/api-tests.trx" \
