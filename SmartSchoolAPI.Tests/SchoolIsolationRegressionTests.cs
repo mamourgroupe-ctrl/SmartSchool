@@ -199,6 +199,33 @@ public sealed class SchoolIsolationRegressionTests
     }
 
     [Fact]
+    public async Task LegacyUnverifiedAttendance_DoesNotBlockSchoolScopedAttendance()
+    {
+        using var factory = new IntegrationTestFactory();
+        var schools = factory.SeedTwoSchools("unverified-attendance-conflict");
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SchoolDbContext>();
+            db.AttendanceRecords.Add(new AttendanceRecord
+            {
+                StudentId = schools.First.School.StudentId, Date = new DateOnly(2026, 10, 10), Status = "ABSENT",
+                Notes = "legacy-unverified", RecordedByUserId = schools.Second.TeacherUserId
+            });
+            await db.SaveChangesAsync();
+        }
+        using var admin = Client(factory, schools.First.AdminUserId, RoleNames.SchoolAdmin);
+
+        using var created = await RecordAsync(admin, schools.First.School.StudentId, "attendance");
+
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var overview = await admin.GetStringAsync($"/api/students/{schools.First.School.StudentId}/360");
+        Assert.DoesNotContain("legacy-unverified", overview);
+        using var verificationScope = factory.Services.CreateScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<SchoolDbContext>();
+        Assert.Equal(2, await verificationDb.AttendanceRecords.CountAsync(r => r.StudentId == schools.First.School.StudentId));
+    }
+
+    [Fact]
     public async Task AdminWithMultipleSchools_CannotChooseNewStudentScopeFromClient()
     {
         using var factory = new IntegrationTestFactory();
