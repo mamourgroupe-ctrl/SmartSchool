@@ -46,7 +46,8 @@ public sealed class SchoolIsolationRegressionTests
             username = "new-student-for-second-school",
             password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)),
             firstName = "Example",
-            lastName = "Student"
+            lastName = "Student",
+            organizationId = schools.First.School.OrganizationId
         });
         Assert.Equal(HttpStatusCode.OK, created.StatusCode);
         var studentId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("studentId").GetInt32();
@@ -309,6 +310,29 @@ public sealed class SchoolIsolationRegressionTests
         using var course = await admin.PostAsJsonAsync("/api/courses", new { courseName = "Example", teacherId });
 
         Assert.Equal(HttpStatusCode.OK, course.StatusCode);
+    }
+
+    [Fact]
+    public async Task NewStudentRecords_AlwaysUseAuthenticatedSchool_NotClientSchool()
+    {
+        using var factory = new IntegrationTestFactory();
+        var schools = factory.SeedTwoSchools("record-owner");
+        using var admin = Client(factory, schools.First.AdminUserId, RoleNames.SchoolAdmin);
+        var studentId = schools.First.School.StudentId;
+        var forgedOrganization = schools.Second.School.OrganizationId;
+        using var attendance = await admin.PostAsJsonAsync($"/api/students/{studentId}/attendance", new { date = "2026-10-12", status = "PRESENT", organizationId = forgedOrganization });
+        using var behavior = await admin.PostAsJsonAsync($"/api/students/{studentId}/behavior", new { date = "2026-10-12", type = "POSITIVE", category = "Example", description = "Example", visibility = "INTERNAL", points = 1, organizationId = forgedOrganization });
+        using var quran = await admin.PostAsJsonAsync($"/api/students/{studentId}/quran", new { date = "2026-10-12", surahName = "Example", fromAyah = 1, toAyah = 2, memorizationType = "NEW", rating = 8, tajweedErrorsCount = 0, organizationId = forgedOrganization });
+        Assert.Equal(HttpStatusCode.Created, attendance.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, behavior.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, quran.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SchoolDbContext>();
+        var expected = schools.First.School.OrganizationId;
+        Assert.Equal(expected, (await db.AttendanceRecords.SingleAsync()).OrganizationId);
+        Assert.Equal(expected, (await db.BehaviorRecords.SingleAsync()).OrganizationId);
+        Assert.Equal(expected, (await db.QuranRecords.SingleAsync()).OrganizationId);
     }
 
     [Fact]
