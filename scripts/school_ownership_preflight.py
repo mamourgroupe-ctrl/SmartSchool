@@ -256,6 +256,11 @@ def inspect_snapshot(input_path: str) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+    if args in (["--help"], ["-h"]):
+        print("Usage: python3 scripts/school_ownership_preflight.py OFFLINE_SNAPSHOT.db\n"
+              "Read-only aggregate counts; use only an independently verified offline snapshot.\n"
+              "Not a backup, reconciliation, approval, or migration-readiness tool.")
+        return 0
     if len(args) != 1:
         print("Usage: python3 scripts/school_ownership_preflight.py OFFLINE_SNAPSHOT.db", file=sys.stderr)
         return 2

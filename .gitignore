@@ -62,6 +62,11 @@ stdin-test.txt
 # .NET generated files
 **/bin/
 **/obj/
+
+# Python caches (including repository scripts)
+__pycache__/
+*.py[cod]
+.pytest_cache/
 # SmartSchool secrets
 .env
 .env.*

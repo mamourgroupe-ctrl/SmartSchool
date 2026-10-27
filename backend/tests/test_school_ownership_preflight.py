@@ -288,6 +288,14 @@ def test_filename_with_uri_metacharacters_is_opened_as_a_file(tmp_path):
     assert _digest(path) == before
 
 
+def test_help_describes_offline_read_only_use():
+    result = subprocess.run([sys.executable, str(SCRIPT), "--help"], text=True, capture_output=True, check=False)
+    assert result.returncode == 0
+    assert "offline" in result.stdout.lower()
+    assert "read-only" in result.stdout.lower()
+    assert not result.stderr
+
+
 def test_changed_snapshot_is_rejected_before_emitting_the_report(tmp_path, monkeypatch, capsys):
     path = tmp_path / "synthetic.db"
     _fixture(path)
