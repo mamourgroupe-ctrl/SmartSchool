@@ -57,6 +57,30 @@ public sealed class SchoolIsolationRegressionTests
     }
 
     [Fact]
+    public async Task SuperAdmin_CannotAssignLegacyUnownedStudentWithUnverifiedRecords()
+    {
+        using var factory = new IntegrationTestFactory();
+        var schools = factory.SeedTwoSchools("unowned-history");
+        var userId = factory.SeedStudent("legacy-unowned-student", Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)), "Example", "Student");
+        int studentId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SchoolDbContext>();
+            studentId = await db.Students.Where(s => s.UserId == userId).Select(s => s.StudentId).SingleAsync();
+            db.AttendanceRecords.Add(new AttendanceRecord { StudentId = studentId, Date = new DateOnly(2026, 10, 11), Status = "PRESENT", RecordedByUserId = schools.Second.TeacherUserId });
+            await db.SaveChangesAsync();
+        }
+        var rootId = factory.SeedUser("unowned-root", Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)), RoleNames.SuperAdmin);
+        using var root = Client(factory, rootId, RoleNames.SuperAdmin);
+
+        using var response = await EnrollAsync(root, studentId, StructureFor(factory, schools.First.School.OrganizationId));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        using var overview = await root.GetAsync($"/api/students/{studentId}/360");
+        Assert.Equal(HttpStatusCode.OK, overview.StatusCode);
+    }
+
+    [Fact]
     public async Task SchoolAdmin_CannotMakeForeignTeacherAMemberOfOwnSchool()
     {
         using var factory = new IntegrationTestFactory();
