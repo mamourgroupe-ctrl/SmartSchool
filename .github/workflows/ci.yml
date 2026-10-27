@@ -56,8 +56,11 @@ jobs:
           failed = [r for r in ET.parse(sys.argv[1]).getroot().findall('.//{*}UnitTestResult') if r.get('outcome') == 'Failed']
           if failed:
               lines = [f"{r.get('testName')}: {r.findtext('.//{*}Message') or ''}" for r in failed]
-              message = ('%s failed tests\n' % len(failed) + '\n'.join(lines)).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-              print(f"::error title=Failing API tests::{message}")
+              summary = '%s failed tests\n' % len(failed) + '\n'.join(lines)
+              chunks = [summary[i:i+1800] for i in range(0, len(summary), 1800)]
+              for index, chunk in enumerate(chunks[:10]):
+                  message = chunk.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print(f'::error title=Failing API tests {index+1}/{len(chunks)}::{message}')
           PY
           fi
       - name: Require executed and passing API tests
