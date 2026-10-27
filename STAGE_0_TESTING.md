@@ -21,10 +21,11 @@ cross-school enrollment issue is not fixed by this testing-only phase.
 
 CI builds the API and test project, checks and applies EF migrations, then runs
 `dotnet test` and writes a TRX report. `scripts/assert_dotnet_test_results.py`
-requires at least one executed and one passing test and fails on a missing,
-malformed, or empty report. The gate itself has Python tests, including the
-zero-test case. `dotnet test` must also succeed: the gate does not replace test
-failure handling.
+requires at least one executed and one passing test, and verifies that both
+new safety-net integration tests passed by name. It fails on a missing,
+malformed, or empty report and publishes the counts as a CI notice. The gate
+itself has Python tests, including the zero-test and missing-required-test cases.
+`dotnet test` must also succeed: the gate does not replace test failure handling.
 
 Example commands from the repository root, on a machine with .NET 10 and NuGet
 access:
@@ -35,7 +36,9 @@ dotnet build SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj --configuration Re
 results_dir="$(mktemp -d)"
 dotnet test SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj --configuration Release --no-build \
   --logger "trx;LogFileName=api-tests.trx" --results-directory "$results_dir"
-python3 scripts/assert_dotnet_test_results.py "$results_dir/api-tests.trx"
+python3 scripts/assert_dotnet_test_results.py "$results_dir/api-tests.trx" \
+  --require-test TwoSchools_RealLoginScopesEachRoleToItsOwnStudent \
+  --require-test SeparateFactories_DoNotShareTheirInMemoryDatabase
 ```
 
 ## Python and Expo

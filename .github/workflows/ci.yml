@@ -32,7 +32,12 @@ jobs:
           --logger "trx;LogFileName=api-tests.trx"
           --results-directory "$RUNNER_TEMP/api-test-results"
       - name: Require executed and passing API tests
-        run: python3 scripts/assert_dotnet_test_results.py "$RUNNER_TEMP/api-test-results/api-tests.trx"
+        run: |
+          summary=$(python3 scripts/assert_dotnet_test_results.py "$RUNNER_TEMP/api-test-results/api-tests.trx" \
+            --require-test TwoSchools_RealLoginScopesEachRoleToItsOwnStudent \
+            --require-test SeparateFactories_DoNotShareTheirInMemoryDatabase)
+          echo "$summary"
+          echo "::notice title=.NET test results::$summary"
 
   # Python (FastAPI) backend tests.
   python:

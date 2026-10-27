@@ -12,6 +12,13 @@ from pathlib import Path
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report", type=Path, help="Path to the TRX results file")
+    parser.add_argument(
+        "--require-test",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Require a passing test whose TRX name contains NAME; may be repeated",
+    )
     args = parser.parse_args()
 
     try:
@@ -33,7 +40,20 @@ def main() -> int:
         )
         return 1
 
-    print(f"Verified .NET test results: {executed} executed, {passed} passed.")
+    results = root.findall(".//{*}UnitTestResult")
+    for required in args.require_test:
+        if not any(
+            required in result.get("testName", "")
+            and result.get("outcome", "").casefold() == "passed"
+            for result in results
+        ):
+            print(f"Required .NET test did not pass: {required}", file=sys.stderr)
+            return 1
+
+    print(
+        f"Verified .NET test results: {executed} executed, {passed} passed; "
+        f"{len(args.require_test)} required tests passed."
+    )
     return 0
 
 
