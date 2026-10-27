@@ -3,6 +3,8 @@ namespace SmartSchoolAPI.Models;
 public sealed class QuranRecord
 {
     public long QuranRecordId { get; set; }
+    public int? OrganizationId { get; set; }
+    public Organization? Organization { get; set; }
     public int StudentId { get; set; }
     public Student Student { get; set; } = null!;
     public string SurahName { get; set; } = string.Empty;

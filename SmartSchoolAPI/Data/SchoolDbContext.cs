@@ -36,6 +36,11 @@ public class SchoolDbContext : DbContext
             entity.HasIndex(x => x.Name).IsUnique();
         });
 
+        builder.Entity<Student>()
+            .HasOne(x => x.Organization).WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<Teacher>()
+            .HasOne(x => x.Organization).WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+
         builder.Entity<OrganizationMembership>(entity =>
         {
             entity.HasIndex(x => new { x.OrganizationId, x.UserId }).IsUnique();
@@ -106,7 +111,8 @@ public class SchoolDbContext : DbContext
         {
             entity.Property(x => x.Status).HasMaxLength(16).IsRequired();
             entity.Property(x => x.Notes).HasMaxLength(400);
-            entity.HasIndex(x => new { x.StudentId, x.Date }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.StudentId, x.Date }).IsUnique();
+            entity.HasOne(x => x.Organization).WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -117,6 +123,7 @@ public class SchoolDbContext : DbContext
             entity.Property(x => x.Description).HasMaxLength(1000).IsRequired();
             entity.Property(x => x.Visibility).HasMaxLength(16).IsRequired();
             entity.HasIndex(x => new { x.StudentId, x.Date });
+            entity.HasOne(x => x.Organization).WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -126,6 +133,7 @@ public class SchoolDbContext : DbContext
             entity.Property(x => x.MemorizationType).HasMaxLength(16).IsRequired();
             entity.Property(x => x.TeacherNotes).HasMaxLength(1000);
             entity.HasIndex(x => new { x.StudentId, x.Date });
+            entity.HasOne(x => x.Organization).WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Restrict);
         });
 

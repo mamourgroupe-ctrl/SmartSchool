@@ -16,15 +16,87 @@ jobs:
       - name: Install dotnet-ef
         run: dotnet tool install --global dotnet-ef --version 10.*
       - name: Add dotnet tools to PATH
-        run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
-      - name: Build
-        run: dotnet build SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj
+        run: echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+      - name: Build API
+        run: dotnet build SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release
+      - name: Build API tests
+        run: dotnet build SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj --configuration Release
       - name: Migrations match model
-        run: dotnet ef migrations has-pending-model-changes --project SmartSchoolAPI/SmartSchoolAPI.csproj --no-build
+        run: dotnet ef migrations has-pending-model-changes --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
       - name: Apply migrations
-        run: dotnet ef database update --project SmartSchoolAPI/SmartSchoolAPI.csproj --no-build
-      - name: Test
-        run: dotnet test SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj --no-build
+        run: dotnet ef database update --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
+      - name: Exercise ownership preflight against populated EF schemas
+        run: |
+          snapshot="$RUNNER_TEMP/school-preflight-ef.db"
+          dotnet ef database update 20261009120000_AddRefreshTokens --connection "Data Source=$snapshot" --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
+          python3 - "$snapshot" <<'PY'
+          import sqlite3, sys
+          from pathlib import Path
+          with sqlite3.connect(sys.argv[1]) as db:
+              db.execute('PRAGMA foreign_keys=ON')
+              db.executescript(Path('backend/tests/fixtures/preflight_legacy_ef.sql').read_text(encoding='utf-8'))
+              assert not db.execute('PRAGMA foreign_key_check').fetchall()
+          PY
+          before=$(sha256sum "$snapshot" | cut -d' ' -f1)
+          python3 scripts/school_ownership_preflight.py "$snapshot" > "$RUNNER_TEMP/preflight-legacy.json"
+          test "$before" = "$(sha256sum "$snapshot" | cut -d' ' -f1)"
+          dotnet ef database update --connection "Data Source=$snapshot" --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
+          before=$(sha256sum "$snapshot" | cut -d' ' -f1)
+          python3 scripts/school_ownership_preflight.py "$snapshot" > "$RUNNER_TEMP/preflight-owned.json"
+          test "$before" = "$(sha256sum "$snapshot" | cut -d' ' -f1)"
+          python3 - "$RUNNER_TEMP/preflight-legacy.json" "$RUNNER_TEMP/preflight-owned.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding='utf-8') as f: legacy = json.load(f)
+          with open(sys.argv[2], encoding='utf-8') as f: owned = json.load(f)
+          assert legacy['schema'] == 'legacy' and owned['schema'] == 'owned'
+          assert legacy['totals'] == owned['totals']
+          assert legacy['totals']['students'] == 3 and legacy['totals']['enrollments'] == 3
+          assert legacy['ownership']['projected_unassigned_after_upgrade'] == owned['ownership']['current_unassigned']
+          assert legacy['review'] == owned['review']
+          assert legacy['review']['students_with_multiple_enrollment_schools'] == 1
+          assert legacy['review']['authorized_guardian_links_missing_membership_for_an_enrollment_school'] == 1
+          assert legacy['integrity'] == owned['integrity'] == {'quick_check_ok': True, 'foreign_key_violation_count': 0}
+          print('::notice title=EF ownership preflight::Verified aggregate preflight before and after EF migration on synthetic data.')
+          PY
+      - name: Run API tests
+        run: >-
+          dotnet test SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj
+          --configuration Release --no-build
+          --logger "trx;LogFileName=api-tests.trx"
+          --results-directory "$RUNNER_TEMP/api-test-results"
+      - name: Report failing API tests
+        if: failure()
+        run: |
+          results="$RUNNER_TEMP/api-test-results/api-tests.trx"
+          if [ -f "$results" ]; then
+            python3 - "$results" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          failed = [r for r in ET.parse(sys.argv[1]).getroot().findall('.//{*}UnitTestResult') if r.get('outcome') == 'Failed']
+          if failed:
+              lines = [f"{r.get('testName')}: {r.findtext('.//{*}Message') or ''}" for r in failed]
+              summary = '%s failed tests\n' % len(failed) + '\n'.join(lines)
+              chunks = [summary[i:i+1800] for i in range(0, len(summary), 1800)]
+              for index, chunk in enumerate(chunks[:10]):
+                  message = chunk.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print(f'::error title=Failing API tests {index+1}/{len(chunks)}::{message}')
+          PY
+          fi
+      - name: Require executed and passing API tests
+        run: |
+          summary=$(python3 scripts/assert_dotnet_test_results.py "$RUNNER_TEMP/api-test-results/api-tests.trx" \
+            --require-test TwoSchools_RealLoginScopesEachRoleToItsOwnStudent \
+            --require-test SeparateFactories_DoNotShareTheirInMemoryDatabase \
+            --require-test SchoolAdmin_CannotEnrollAStudentOwnedByAnotherSchool \
+            --require-test LegacyCrossSchoolGuardianLink_DoesNotGrantAccessToForeignStudent \
+            --require-test LegacyRecordsWithoutVerifiedSchool_AreQuarantinedButPreservedForSuperAdmin \
+            --require-test NewStudentRecords_AlwaysUseAuthenticatedSchool_NotClientSchool \
+            --require-test Upgrade_PreservesLegacyDataAndDoesNotGuessItsSchool \
+            --require-test LegacyFile_UpgradeAndBackupRestore_PreserveDataAndQuarantineSchoolAccess \
+            --require-test DowngradeWithoutNewConflicts_PreservesLegacyData \
+            --require-test DowngradeWithDuplicateAttendance_FailsAndOriginalBackupCanBeRestored)
+          echo "$summary"
+          echo "::notice title=.NET test results::$summary"
 
   # Python (FastAPI) backend tests.
   python:
@@ -39,13 +111,38 @@ jobs:
           # requirements.txt pins numpy==2.5.2 which requires Python >= 3.12.
           python-version: "3.12"
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
+        run: pip install -r requirements-dev.txt
+      - name: Require preflight security scenarios
+        run: |
+          pytest -q tests/test_school_ownership_preflight.py --junitxml="$RUNNER_TEMP/preflight-tests.xml"
+          python3 - "$RUNNER_TEMP/preflight-tests.xml" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          cases = list(ET.parse(sys.argv[1]).iter('testcase'))
+          passed = [case for case in cases if not any(case.find(kind) is not None for kind in ('failure', 'error', 'skipped'))]
+          required = (
+              'test_legacy_snapshot_reports_counts_and_review_signals_without_modifying_it',
+              'test_owned_snapshot_reports_unassigned_mismatches_and_downgrade_conflicts',
+              'test_sidecars_even_if_empty_are_rejected_without_writes',
+              'test_live_wal_is_rejected_even_when_it_contains_committed_changes',
+              'test_unknown_or_partial_schema_fails_closed_without_a_report',
+              'test_foreign_key_violations_are_counted_without_emitting_row_identifiers',
+              'test_invalid_input_never_creates_a_database_or_prints_its_path',
+              'test_changed_snapshot_is_rejected_before_emitting_the_report',
+              'test_read_only_connection_rejects_even_an_accidental_write',
+          )
+          for name in required:
+              assert any(case.get('name', '').split('[', 1)[0] == name for case in passed), f'Missing or skipped preflight scenario: {name}'
+          assert passed, 'No preflight tests executed'
+          print(f'::notice title=Preflight test results::{len(passed)} tests passed; {len(required)} required scenarios passed.')
+          PY
       - name: Test
         run: pytest
 
-  # Expo (React Native) type check.
+  # Expo (React Native) type check, lint, and web export.
   expo:
     runs-on: ubuntu-latest
+    env:
+      EXPO_OFFLINE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,3 +152,11 @@ jobs:
         run: npm ci
       - name: Type-check
         run: npx tsc --noEmit
+      - name: Lint
+        run: npm run lint
+      - name: Export web
+        run: npx expo export --platform web --output-dir "$RUNNER_TEMP/expo-web"
+
+  # MAUI is temporarily excluded: QuranRecordDto is referenced but not defined
+  # in the mobile project. See STAGE_0_TESTING.md for the limitation and a
+  # workload-enabled build command. This phase does not change mobile code.

@@ -35,13 +35,15 @@ public sealed class Student360Controller : ControllerBase
     public async Task<IActionResult> RecordAttendance(int studentId, [FromBody] AttendanceCommand command)
     {
         if (!AttendanceStatuses.All.Contains(command.Status)) return BadRequest(new { message = "Invalid attendance status." });
-        if (!await _student360.CanManageAsync(studentId, User)) return NotFound();
-        if (await _db.AttendanceRecords.AnyAsync(x => x.StudentId == studentId && x.Date == command.Date))
+        var organizationId = await _student360.ManagedOrganizationAsync(studentId);
+        if (organizationId is null) return NotFound();
+        if (await _db.AttendanceRecords.AnyAsync(x => x.OrganizationId == organizationId && x.StudentId == studentId && x.Date == command.Date))
             return Conflict(new { message = "Attendance already exists for this student and date." });
 
         Stage1AccessService.TryUserId(User, out var actor);
         _db.AttendanceRecords.Add(new AttendanceRecord
         {
+            OrganizationId = organizationId.Value,
             StudentId = studentId,
             Date = command.Date,
             Status = command.Status,
@@ -65,11 +67,13 @@ public sealed class Student360Controller : ControllerBase
     {
         if (!BehaviorTypes.All.Contains(command.Type) || !BehaviorVisibility.All.Contains(command.Visibility))
             return BadRequest(new { message = "Invalid behavior type or visibility." });
-        if (!await _student360.CanManageAsync(studentId, User)) return NotFound();
+        var organizationId = await _student360.ManagedOrganizationAsync(studentId);
+        if (organizationId is null) return NotFound();
 
         Stage1AccessService.TryUserId(User, out var actor);
         _db.BehaviorRecords.Add(new BehaviorRecord
         {
+            OrganizationId = organizationId.Value,
             StudentId = studentId,
             Type = command.Type,
             Category = command.Category,

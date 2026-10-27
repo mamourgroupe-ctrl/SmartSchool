@@ -16,11 +16,13 @@ public sealed class QuranController : ControllerBase
 {
     private readonly SchoolDbContext _db;
     private readonly Student360Service _student360;
+    private readonly ISchoolScope _scope;
 
-    public QuranController(SchoolDbContext db, Student360Service student360)
+    public QuranController(SchoolDbContext db, Student360Service student360, ISchoolScope scope)
     {
         _db = db;
         _student360 = student360;
+        _scope = scope;
     }
 
     [Authorize(Roles = RoleNames.SuperAdmin + "," + RoleNames.SchoolAdmin + "," + RoleNames.Teacher)]
@@ -35,11 +37,13 @@ public sealed class QuranController : ControllerBase
             return BadRequest(new { message = "Rating must be between 0 and 10." });
         if (command.TajweedErrorsCount < 0)
             return BadRequest(new { message = "Tajweed error count cannot be negative." });
-        if (!await _student360.CanManageAsync(studentId, User)) return NotFound();
+        var organizationId = await _student360.ManagedOrganizationAsync(studentId);
+        if (organizationId is null) return NotFound();
 
         Stage1AccessService.TryUserId(User, out var actor);
         var record = new QuranRecord
         {
+            OrganizationId = organizationId.Value,
             StudentId = studentId,
             SurahName = command.SurahName.Trim(),
             FromAyah = command.FromAyah,
@@ -68,7 +72,7 @@ public sealed class QuranController : ControllerBase
     public async Task<IActionResult> List(int studentId)
     {
         if (!await _student360.CanViewAsync(studentId, User)) return NotFound();
-        var records = await _db.QuranRecords
+        var records = await _scope.Quran()
             .Where(x => x.StudentId == studentId)
             .OrderByDescending(x => x.Date)
             .ThenByDescending(x => x.QuranRecordId)
@@ -81,7 +85,7 @@ public sealed class QuranController : ControllerBase
     public async Task<IActionResult> Summary(int studentId)
     {
         if (!await _student360.CanViewAsync(studentId, User)) return NotFound();
-        var records = await _db.QuranRecords
+        var records = await _scope.Quran()
             .Where(x => x.StudentId == studentId)
             .Select(x => new { x.MemorizationType, x.FromAyah, x.ToAyah, x.Rating, x.TajweedErrorsCount, x.Date })
             .ToListAsync();
