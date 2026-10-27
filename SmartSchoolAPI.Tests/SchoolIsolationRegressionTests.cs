@@ -146,6 +146,80 @@ public sealed class SchoolIsolationRegressionTests
     }
 
     [Fact]
+    public async Task LegacyRecordsWithoutVerifiedSchool_AreQuarantinedButPreservedForSuperAdmin()
+    {
+        using var factory = new IntegrationTestFactory();
+        var schools = factory.SeedTwoSchools("unverified-legacy-records");
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SchoolDbContext>();
+            var studentId = schools.First.School.StudentId;
+            var foreignRecorder = schools.Second.TeacherUserId;
+            db.AttendanceRecords.Add(new AttendanceRecord { StudentId = studentId, Date = new DateOnly(2026, 10, 11), Status = "ABSENT", Notes = "unverified-attendance", RecordedByUserId = foreignRecorder });
+            db.BehaviorRecords.Add(new BehaviorRecord { StudentId = studentId, Date = new DateOnly(2026, 10, 11), Type = "POSITIVE", Category = "Example", Description = "unverified-behavior", Visibility = "PARENT_VISIBLE", RecordedByUserId = foreignRecorder });
+            db.QuranRecords.Add(new QuranRecord { StudentId = studentId, Date = new DateOnly(2026, 10, 11), SurahName = "unverified-quran", FromAyah = 1, ToAyah = 2, MemorizationType = "NEW", Rating = 8, RecordedByUserId = foreignRecorder });
+            await db.SaveChangesAsync();
+        }
+        using var admin = Client(factory, schools.First.AdminUserId, RoleNames.SchoolAdmin);
+        var overview = await admin.GetStringAsync($"/api/students/{schools.First.School.StudentId}/360");
+        var records = await admin.GetFromJsonAsync<JsonElement[]>($"/api/students/{schools.First.School.StudentId}/quran");
+        Assert.DoesNotContain("unverified-attendance", overview);
+        Assert.DoesNotContain("unverified-behavior", overview);
+        Assert.DoesNotContain("unverified-quran", overview);
+        Assert.NotNull(records);
+        Assert.Empty(records!);
+
+        var rootId = factory.SeedUser("unverified-root", Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)), RoleNames.SuperAdmin);
+        using var root = Client(factory, rootId, RoleNames.SuperAdmin);
+        var rootOverview = await root.GetStringAsync($"/api/students/{schools.First.School.StudentId}/360");
+        Assert.Contains("unverified-attendance", rootOverview);
+        Assert.Contains("unverified-behavior", rootOverview);
+        Assert.Contains("unverified-quran", rootOverview);
+    }
+
+    [Fact]
+    public async Task AdminWithMultipleSchools_CannotChooseNewStudentScopeFromClient()
+    {
+        using var factory = new IntegrationTestFactory();
+        var schools = factory.SeedTwoSchools("ambiguous-creator");
+        factory.AddMembership(schools.Second.School.OrganizationId, schools.First.AdminUserId);
+        using var admin = Client(factory, schools.First.AdminUserId, RoleNames.SchoolAdmin);
+
+        using var response = await admin.PostAsJsonAsync("/api/students", new
+        {
+            username = "ambiguous-new-student",
+            password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)),
+            firstName = "Example",
+            lastName = "Student",
+            organizationId = schools.Second.School.OrganizationId
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SchoolAdminCanCreateTeacherAndCourseInOwnSchool()
+    {
+        using var factory = new IntegrationTestFactory();
+        var schools = factory.SeedTwoSchools("create-teacher-scope");
+        using var admin = Client(factory, schools.First.AdminUserId, RoleNames.SchoolAdmin);
+        using var created = await admin.PostAsJsonAsync("/api/teachers", new
+        {
+            username = "new-teacher-for-first-school",
+            password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)),
+            firstName = "Example",
+            lastName = "Teacher",
+            subjectSpecialty = "Example"
+        });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var teacherId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("teacherId").GetInt32();
+
+        using var course = await admin.PostAsJsonAsync("/api/courses", new { courseName = "Example", teacherId });
+
+        Assert.Equal(HttpStatusCode.OK, course.StatusCode);
+    }
+
+    [Fact]
     public async Task LegacyCrossSchoolTeacherMembership_DoesNotExposeForeignTeacherOrCourses()
     {
         using var factory = new IntegrationTestFactory();
