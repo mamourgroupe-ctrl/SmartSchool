@@ -57,8 +57,10 @@ jobs:
             --require-test SchoolAdmin_CannotEnrollAStudentOwnedByAnotherSchool \
             --require-test LegacyCrossSchoolGuardianLink_DoesNotGrantAccessToForeignStudent \
             --require-test LegacyRecordsWithoutVerifiedSchool_AreQuarantinedButPreservedForSuperAdmin \
-            --require-test NewStudentRecords_AlwaysUseAuthenticatedSchool_NotClientSchool \
-            --require-test Upgrade_PreservesLegacyDataAndDoesNotGuessItsSchool)
+          --require-test NewStudentRecords_AlwaysUseAuthenticatedSchool_NotClientSchool \
+          --require-test Upgrade_PreservesLegacyDataAndDoesNotGuessItsSchool \
+          --require-test LegacyFile_UpgradeAndBackupRestore_PreserveDataAndQuarantineSchoolAccess \
+          --require-test DowngradeWithDuplicateAttendance_FailsAndOriginalBackupCanBeRestored)
           echo "$summary"
           echo "::notice title=.NET test results::$summary"
 
