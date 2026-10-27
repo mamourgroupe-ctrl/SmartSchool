@@ -44,6 +44,8 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ISchoolScope, SchoolScope>();
 builder.Services.AddScoped<Stage1AccessService>();
 builder.Services.AddScoped<Student360Service>();
 builder.Services.AddEndpointsApiExplorer();

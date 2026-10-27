@@ -39,6 +39,7 @@ public sealed class QuranIntegrationTests
         db.QuranRecords.Add(new QuranRecord
         {
             StudentId = studentId,
+            OrganizationId = db.Students.Where(s => s.StudentId == studentId).Select(s => s.OrganizationId).Single(),
             SurahName = "سورة الملك",
             FromAyah = fromAyah,
             ToAyah = toAyah,

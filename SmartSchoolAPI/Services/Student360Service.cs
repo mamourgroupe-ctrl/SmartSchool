@@ -1,56 +1,50 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using SmartSchoolAPI.Authorization;
-using SmartSchoolAPI.Data;
 
 namespace SmartSchoolAPI.Services;
 
 public sealed class Student360Service
 {
-    private readonly SchoolDbContext _db;
-    private readonly Stage1AccessService _access;
+    private readonly ISchoolScope _scope;
 
-    public Student360Service(SchoolDbContext db, Stage1AccessService access)
-    {
-        _db = db;
-        _access = access;
-    }
+    public Student360Service(ISchoolScope scope) => _scope = scope;
 
     public async Task<Student360Overview?> GetAsync(int studentId, ClaimsPrincipal user)
     {
         if (!await CanViewAsync(studentId, user)) return null;
 
-        var student = await _db.Students
+        var student = await _scope.Students()
             .Where(x => x.StudentId == studentId)
             .Select(x => new { x.StudentId, x.FirstName, x.LastName })
             .SingleOrDefaultAsync();
         if (student is null) return null;
 
-        var canManage = await CanManageAsync(studentId, user);
-        var enrollments = await _db.Enrollments
+        var canManage = user.IsInRole(RoleNames.SuperAdmin) || await CanManageAsync(studentId, user);
+        var enrollments = await _scope.Enrollments()
             .Where(x => x.StudentId == studentId)
             .OrderByDescending(x => x.StartDate)
             .Select(x => new EnrollmentItem(x.EnrollmentId, x.Status, x.Section.Name, x.Section.SchoolClass.Name, x.StartDate, x.EndDate))
             .ToListAsync();
-        var guardians = await _db.StudentParents
+        var guardians = await _scope.Guardians()
             .Where(x => x.StudentId == studentId && x.IsAuthorized)
             .OrderBy(x => x.Parent.LastName)
             .Select(x => new GuardianItem(x.ParentId, x.Parent.FirstName, x.Parent.LastName, x.Relationship))
             .ToListAsync();
-        var attendance = await _db.AttendanceRecords
+        var attendance = await _scope.Attendance()
             .Where(x => x.StudentId == studentId)
             .OrderByDescending(x => x.Date)
             .Take(30)
             .Select(x => new AttendanceItem(x.Date, x.Status, x.Notes))
             .ToListAsync();
-        var behaviorQuery = _db.BehaviorRecords.Where(x => x.StudentId == studentId);
+        var behaviorQuery = _scope.Behavior().Where(x => x.StudentId == studentId);
         if (!canManage) behaviorQuery = behaviorQuery.Where(x => x.Visibility == BehaviorVisibility.ParentVisible);
         var behavior = await behaviorQuery
             .OrderByDescending(x => x.Date)
             .Take(30)
             .Select(x => new BehaviorItem(x.Date, x.Type, x.Category, x.Description, x.Points, x.Visibility))
             .ToListAsync();
-        var quran = await _db.QuranRecords
+        var quran = await _scope.Quran()
             .Where(x => x.StudentId == studentId)
             .OrderByDescending(x => x.Date)
             .ThenByDescending(x => x.QuranRecordId)
@@ -61,31 +55,12 @@ public sealed class Student360Service
         return new Student360Overview(student.StudentId, student.FirstName, student.LastName, enrollments, guardians, attendance, behavior, quran);
     }
 
-    public async Task<bool> CanManageAsync(int studentId, ClaimsPrincipal user)
-    {
-        if (user.IsInRole(RoleNames.SuperAdmin)) return true;
-        if (user.IsInRole(RoleNames.SchoolAdmin)) return await _access.CanAdminStudentAsync(studentId, user);
-        if (!user.IsInRole(RoleNames.Teacher) || !Stage1AccessService.TryUserId(user, out var userId)) return false;
+    public async Task<bool> CanManageAsync(int studentId, ClaimsPrincipal user) =>
+        await _scope.ManagedStudentOrganizationAsync(studentId) is not null;
 
-        return await _db.Enrollments.AnyAsync(x =>
-            x.StudentId == studentId && x.Status == EnrollmentStatuses.Active &&
-            x.Section.Teacher != null && x.Section.Teacher.UserId == userId &&
-            _db.OrganizationMemberships.Any(m => m.OrganizationId == x.AcademicYear.OrganizationId && m.UserId == userId && m.IsActive));
-    }
+    public Task<int?> ManagedOrganizationAsync(int studentId) => _scope.ManagedStudentOrganizationAsync(studentId);
 
-    public async Task<bool> CanViewAsync(int studentId, ClaimsPrincipal user)
-    {
-        if (await CanManageAsync(studentId, user)) return true;
-        if (!Stage1AccessService.TryUserId(user, out var userId)) return false;
-
-        if (user.IsInRole(RoleNames.Student))
-            return await _db.Students.AnyAsync(x => x.StudentId == studentId && x.UserId == userId);
-
-        if (user.IsInRole(RoleNames.Parent))
-            return await _db.StudentParents.AnyAsync(x => x.StudentId == studentId && x.IsAuthorized && x.Parent.UserId == userId);
-
-        return false;
-    }
+    public Task<bool> CanViewAsync(int studentId, ClaimsPrincipal user) => _scope.CanViewStudentAsync(studentId);
 }
 
 public static class EnrollmentStatuses

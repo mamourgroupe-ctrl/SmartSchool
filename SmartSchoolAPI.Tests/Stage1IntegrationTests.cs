@@ -206,7 +206,8 @@ public sealed class Stage1IntegrationTests
         var db = scope.ServiceProvider.GetRequiredService<SchoolDbContext>();
         db.BehaviorRecords.Add(new BehaviorRecord
         {
-            StudentId = studentId, Type = "POSITIVE", Category = "Conduct", Description = description,
+            StudentId = studentId, OrganizationId = db.Students.Where(s => s.StudentId == studentId).Select(s => s.OrganizationId).Single(),
+            Type = "POSITIVE", Category = "Conduct", Description = description,
             Visibility = visibility, Points = 1, Date = new DateOnly(2026, 9, 1), RecordedByUserId = 0
         });
         db.SaveChanges();
@@ -228,7 +229,7 @@ public sealed class Stage1IntegrationTests
         var studentUser = new User { Username = $"{prefix}-student", PasswordHash = PasswordService.Hash("Correct123!"), Role = RoleNames.Student };
         db.Users.Add(studentUser);
         db.SaveChanges();
-        var student = new Student { UserId = studentUser.UserId, FirstName = "Student", LastName = prefix };
+        var student = new Student { UserId = studentUser.UserId, OrganizationId = organization.OrganizationId, FirstName = "Student", LastName = prefix };
         db.Students.Add(student);
         var academicYear = new AcademicYear { OrganizationId = organization.OrganizationId, Name = $"{prefix}-year", StartDate = new DateOnly(2026, 9, 1), EndDate = new DateOnly(2027, 6, 30), IsActive = true };
         db.AcademicYears.Add(academicYear);
@@ -245,7 +246,7 @@ public sealed class Stage1IntegrationTests
             var teacherUser = new User { Username = $"{prefix}-teacher", PasswordHash = PasswordService.Hash("Correct123!"), Role = RoleNames.Teacher };
             db.Users.Add(teacherUser);
             db.SaveChanges();
-            var teacher = new Teacher { UserId = teacherUser.UserId, FirstName = "Teacher", LastName = prefix, SubjectSpecialty = "General" };
+            var teacher = new Teacher { UserId = teacherUser.UserId, OrganizationId = organization.OrganizationId, FirstName = "Teacher", LastName = prefix, SubjectSpecialty = "General" };
             db.Teachers.Add(teacher);
             db.OrganizationMemberships.Add(new OrganizationMembership { OrganizationId = organization.OrganizationId, UserId = teacherUser.UserId });
             db.SaveChanges();

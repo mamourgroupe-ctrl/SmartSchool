@@ -21,20 +21,6 @@ jobs:
         run: dotnet build SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release
       - name: Build API tests
         run: dotnet build SmartSchoolAPI.Tests/SmartSchoolAPI.Tests.csproj --configuration Release
-      # Temporary: export an EF-generated migration for review on this branch.
-      - name: Generate school-ownership migration
-        run: |
-          dotnet ef migrations add AddExplicitSchoolOwnership --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
-          tar -czf "$RUNNER_TEMP/school-ownership-migration.tgz" SmartSchoolAPI/Migrations/*_AddExplicitSchoolOwnership.* SmartSchoolAPI/Migrations/SchoolDbContextModelSnapshot.cs
-          python3 - "$RUNNER_TEMP/school-ownership-migration.tgz" <<'PY'
-          import base64, pathlib, sys
-          encoded = base64.b64encode(pathlib.Path(sys.argv[1]).read_bytes()).decode()
-          chunks = [encoded[i:i+3000] for i in range(0, len(encoded), 3000)]
-          assert len(chunks) <= 10, 'bundle exceeds the annotation limit'
-          for index, chunk in enumerate(chunks):
-              print(f'::notice title=EF migration bundle {index+1:02} of {len(chunks):02}::{chunk}')
-          PY
-          dotnet build SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release
       - name: Migrations match model
         run: dotnet ef migrations has-pending-model-changes --project SmartSchoolAPI/SmartSchoolAPI.csproj --configuration Release --no-build
       - name: Apply migrations
@@ -67,7 +53,12 @@ jobs:
         run: |
           summary=$(python3 scripts/assert_dotnet_test_results.py "$RUNNER_TEMP/api-test-results/api-tests.trx" \
             --require-test TwoSchools_RealLoginScopesEachRoleToItsOwnStudent \
-            --require-test SeparateFactories_DoNotShareTheirInMemoryDatabase)
+            --require-test SeparateFactories_DoNotShareTheirInMemoryDatabase \
+            --require-test SchoolAdmin_CannotEnrollAStudentOwnedByAnotherSchool \
+            --require-test LegacyCrossSchoolGuardianLink_DoesNotGrantAccessToForeignStudent \
+            --require-test LegacyRecordsWithoutVerifiedSchool_AreQuarantinedButPreservedForSuperAdmin \
+            --require-test NewStudentRecords_AlwaysUseAuthenticatedSchool_NotClientSchool \
+            --require-test Upgrade_PreservesLegacyDataAndDoesNotGuessItsSchool)
           echo "$summary"
           echo "::notice title=.NET test results::$summary"
 

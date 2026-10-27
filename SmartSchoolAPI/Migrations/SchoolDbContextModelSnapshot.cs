@@ -64,6 +64,9 @@ namespace SmartSchoolAPI.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("RecordedByUserId")
                         .HasColumnType("INTEGER");
 
@@ -77,7 +80,9 @@ namespace SmartSchoolAPI.Migrations
 
                     b.HasKey("AttendanceRecordId");
 
-                    b.HasIndex("StudentId", "Date")
+                    b.HasIndex("StudentId");
+
+                    b.HasIndex("OrganizationId", "StudentId", "Date")
                         .IsUnique();
 
                     b.ToTable("AttendanceRecords");
@@ -133,6 +138,9 @@ namespace SmartSchoolAPI.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("Points")
                         .HasColumnType("INTEGER");
 
@@ -153,6 +161,8 @@ namespace SmartSchoolAPI.Migrations
                         .HasColumnType("TEXT");
 
                     b.HasKey("BehaviorRecordId");
+
+                    b.HasIndex("OrganizationId");
 
                     b.HasIndex("StudentId", "Date");
 
@@ -330,6 +340,9 @@ namespace SmartSchoolAPI.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("Rating")
                         .HasColumnType("INTEGER");
 
@@ -355,6 +368,8 @@ namespace SmartSchoolAPI.Migrations
                         .HasColumnType("INTEGER");
 
                     b.HasKey("QuranRecordId");
+
+                    b.HasIndex("OrganizationId");
 
                     b.HasIndex("StudentId", "Date");
 
@@ -461,10 +476,15 @@ namespace SmartSchoolAPI.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("UserId")
                         .HasColumnType("INTEGER");
 
                     b.HasKey("StudentId");
+
+                    b.HasIndex("OrganizationId");
 
                     b.HasIndex("UserId");
 
@@ -515,6 +535,9 @@ namespace SmartSchoolAPI.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("SubjectSpecialty")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -523,6 +546,8 @@ namespace SmartSchoolAPI.Migrations
                         .HasColumnType("INTEGER");
 
                     b.HasKey("TeacherId");
+
+                    b.HasIndex("OrganizationId");
 
                     b.HasIndex("UserId");
 
@@ -593,22 +618,36 @@ namespace SmartSchoolAPI.Migrations
 
             modelBuilder.Entity("SmartSchoolAPI.Models.AttendanceRecord", b =>
                 {
+                    b.HasOne("SmartSchoolAPI.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SmartSchoolAPI.Models.Student", "Student")
                         .WithMany()
                         .HasForeignKey("StudentId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Organization");
 
                     b.Navigation("Student");
                 });
 
             modelBuilder.Entity("SmartSchoolAPI.Models.BehaviorRecord", b =>
                 {
+                    b.HasOne("SmartSchoolAPI.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SmartSchoolAPI.Models.Student", "Student")
                         .WithMany()
                         .HasForeignKey("StudentId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Organization");
 
                     b.Navigation("Student");
                 });
@@ -691,11 +730,18 @@ namespace SmartSchoolAPI.Migrations
 
             modelBuilder.Entity("SmartSchoolAPI.Models.QuranRecord", b =>
                 {
+                    b.HasOne("SmartSchoolAPI.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SmartSchoolAPI.Models.Student", "Student")
                         .WithMany()
                         .HasForeignKey("StudentId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Organization");
 
                     b.Navigation("Student");
                 });
@@ -742,11 +788,18 @@ namespace SmartSchoolAPI.Migrations
 
             modelBuilder.Entity("SmartSchoolAPI.Models.Student", b =>
                 {
+                    b.HasOne("SmartSchoolAPI.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SmartSchoolAPI.Models.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Organization");
 
                     b.Navigation("User");
                 });
@@ -772,11 +825,18 @@ namespace SmartSchoolAPI.Migrations
 
             modelBuilder.Entity("SmartSchoolAPI.Models.Teacher", b =>
                 {
+                    b.HasOne("SmartSchoolAPI.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SmartSchoolAPI.Models.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Organization");
 
                     b.Navigation("User");
                 });

@@ -99,7 +99,9 @@ public sealed class IntegrationSecurityTests
     [Fact]
     public async Task StudentCannotCreateStudent_ButSchoolAdminCan()
     {
-        using var factory = NewFactory(); factory.SeedUser("student-role", "Correct123!", RoleNames.Student); factory.SeedUser("school-admin", "Correct123!", RoleNames.SchoolAdmin);
+        using var factory = NewFactory(); factory.SeedUser("student-role", "Correct123!", RoleNames.Student); var adminId = factory.SeedUser("school-admin", "Correct123!", RoleNames.SchoolAdmin);
+        var school = factory.SeedStructuredSchool("creation-role");
+        factory.AddMembership(school.OrganizationId, adminId);
         using var studentClient = Client(factory); Bearer(studentClient, await Login(studentClient, "student-role", "Correct123!"));
         var forbidden = await studentClient.PostAsJsonAsync("/api/students", new { Username = "newstudent", Password = "Correct123!", FirstName = "A", LastName = "B" }); Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
         using var adminClient = Client(factory); Bearer(adminClient, await Login(adminClient, "school-admin", "Correct123!"));
