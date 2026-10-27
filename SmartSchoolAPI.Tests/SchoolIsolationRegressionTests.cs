@@ -146,6 +146,27 @@ public sealed class SchoolIsolationRegressionTests
     }
 
     [Fact]
+    public async Task LegacyCrossSchoolGuardianLink_DoesNotGrantAccessToForeignStudent()
+    {
+        using var factory = new IntegrationTestFactory();
+        var schools = factory.SeedTwoSchools("foreign-guardian");
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SchoolDbContext>();
+            var parentId = await db.Parents.Where(p => p.UserId == schools.First.ParentUserId).Select(p => p.ParentId).SingleAsync();
+            db.StudentParents.Add(new StudentParent { StudentId = schools.Second.School.StudentId, ParentId = parentId, Relationship = "Example", IsAuthorized = true });
+            await db.SaveChangesAsync();
+        }
+        using var parent = Client(factory, schools.First.ParentUserId, RoleNames.Parent);
+
+        using var own = await parent.GetAsync($"/api/students/{schools.First.School.StudentId}/360");
+        using var foreign = await parent.GetAsync($"/api/students/{schools.Second.School.StudentId}/360");
+
+        Assert.Equal(HttpStatusCode.OK, own.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
+    }
+
+    [Fact]
     public async Task LegacyRecordsWithoutVerifiedSchool_AreQuarantinedButPreservedForSuperAdmin()
     {
         using var factory = new IntegrationTestFactory();
