@@ -111,7 +111,7 @@ public class SchoolDbContext : DbContext
         {
             entity.Property(x => x.Status).HasMaxLength(16).IsRequired();
             entity.Property(x => x.Notes).HasMaxLength(400);
-            entity.HasIndex(x => new { x.StudentId, x.Date }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.StudentId, x.Date }).IsUnique();
             entity.HasOne(x => x.Organization).WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Restrict);
         });
